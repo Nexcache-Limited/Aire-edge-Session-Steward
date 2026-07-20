@@ -47,6 +47,8 @@ test("keeps the session engine and intelligence layer separate", async () => {
   assert.match(types, /interface SessionContract/);
   assert.match(types, /interface Retrospective/);
   assert.match(page, /const demoStops = \[4, 6, 7, 8, 10\]/);
+  assert.match(page, /const replayPositions = \[1, \.\.\.demoStops\]/);
+  assert.match(page, /setVisibleCount\(replayPositions\[0\]\)/);
   assert.match(page, /Recommendation justified/);
   assert.match(page, /If validation does not begin within 8 minutes/);
   assert.doesNotMatch(page, /Objective evidence · not uptime|None · evidence advancing|CURRENT POSITION/);

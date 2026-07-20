@@ -15,6 +15,7 @@ const healthCopy: Record<SessionHealth, { label: string; eyebrow: string }> = {
 };
 
 const demoStops = [4, 6, 7, 8, 10];
+const replayPositions = [1, ...demoStops];
 const demoBeatLabels = ["Progressing", "Attention needed", "Intervention", "Recovered", "Recommendation"];
 
 const eventMarks: Record<SessionEvent["kind"], string> = {
@@ -131,17 +132,17 @@ export default function Home() {
   }, [playing, speed, visibleCount]);
 
   function toggleReplay() {
-    if (visibleCount >= demoEvents.length) setVisibleCount(demoStops[0]);
+    if (visibleCount >= demoEvents.length) setVisibleCount(replayPositions[0]);
     setPlaying((current) => !current);
   }
 
   function stepReplay(direction: -1 | 1) {
     setPlaying(false);
     if (direction === 1) {
-      setVisibleCount(demoStops.find((stop) => stop > visibleCount) ?? demoStops.at(-1) ?? visibleCount);
+      setVisibleCount(replayPositions.find((stop) => stop > visibleCount) ?? replayPositions.at(-1) ?? visibleCount);
       return;
     }
-    setVisibleCount([...demoStops].reverse().find((stop) => stop < visibleCount) ?? demoStops[0]);
+    setVisibleCount([...replayPositions].reverse().find((stop) => stop < visibleCount) ?? replayPositions[0]);
   }
 
   function inspectEvidence(eventId: string) {
