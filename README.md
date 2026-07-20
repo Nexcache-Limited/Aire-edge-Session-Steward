@@ -233,42 +233,37 @@ Confidence recovers when fresh evidence advances the contract.
 
 ## Architecture
 
-```text
-Session Contract + Session Events
-                 │
-                 ▼
-       Deterministic Session Engine
-       ────────────────────────────
-       Event ordering
-       Expected-step progression
-       Elapsed-time windows
-       Evidence freshness
-       Missing follow-through
-       Repeated non-progress activity
-       Contract-completion tracking
-       Session-state transitions
-                 │
-                 ▼
-       Structured Session State
-       ────────────────────────
-       Current contract position
-       Objective progress
-       Confidence history
-       Evidence IDs
-       Candidate intervention state
-                 │
-                 ▼
-       Intelligence Service Boundary
-       ─────────────────────────────
-       Session interpretation
-       Evidence-linked explanation
-       Recommended next action
-       Engineer narrative
-       Stakeholder narrative
-       Retrospective
-                 │
-                 ▼
-          Replayable Product UI
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant UI as Product UI
+    participant SC as Session Contract
+    participant SE as Session Event Stream
+    participant DE as Deterministic Session Engine
+    participant SS as Structured Session State
+    participant IS as Intelligence Service
+
+    UI->>SE: User or system action generates an event
+    SE->>DE: Forward session event
+    SC-->>DE: Provide expected steps, timing, and guardrails
+
+    DE->>DE: Order events in the session timeline
+    DE->>DE: Evaluate progression, timing, and evidence freshness
+    DE->>DE: Detect non-progress or missing follow-through
+    DE->>DE: Apply completion and state-transition logic
+
+    DE->>SS: Produce current state and confidence history
+    SS-->>UI: Expose structured state for replay
+
+    UI->>IS: Send state snapshot and evidence IDs
+    IS->>IS: Interpret session context
+    IS->>IS: Generate an explanation and one next action
+    IS->>IS: Build engineer and stakeholder narratives
+    IS->>IS: Build retrospective output
+
+    IS-->>UI: Return assessment, recommendation, and narratives
+    UI->>UI: Render judgement and replayable session view
 ```
 
 The deterministic layer owns safety-relevant facts and state transitions.
@@ -276,6 +271,8 @@ The deterministic layer owns safety-relevant facts and state transitions.
 The intelligence boundary interprets those facts, explains the current judgement for different audiences, and recommends next actions without taking control of event ordering or threshold evaluation.
 
 This keeps the system evidence-backed, testable, and usable even when no external model provider is connected.
+
+In this MVP, structured session state is derived in memory from the seeded event stream. The boundary can be backed by persistent storage when live event ingestion is connected.
 
 ### File structure
 
