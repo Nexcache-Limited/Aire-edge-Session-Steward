@@ -90,11 +90,11 @@ function AssessmentPanel({ events, state }: { events: SessionEvent[]; state: Ret
 }
 
 export default function Home() {
-  const [visibleCount, setVisibleCount] = useState(7);
+  const [visibleCount, setVisibleCount] = useState(replayPositions[0]);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [activeTab, setActiveTab] = useState<"engineer" | "stakeholder" | "retrospective">("engineer");
-  const [selectedEvidence, setSelectedEvidence] = useState("evt-07");
+  const [selectedEvidence, setSelectedEvidence] = useState("evt-01");
   const visibleEvents = useMemo(() => demoEvents.slice(0, visibleCount), [visibleCount]);
   const state = useMemo(() => evaluateSession(demoContract, visibleEvents), [visibleEvents]);
   const intelligence = useMemo(() => generateIntelligence(state), [state]);
