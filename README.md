@@ -28,6 +28,22 @@ Session Steward is designed to detect that gap.
 
 ---
 
+## Product walkthrough
+
+### Intervention required
+
+![Session intervention showing healthy infrastructure, stale objective evidence, and the recommended validation action](docs/intervention.jpg)
+
+### Progressing
+
+![Session progressing from the baseline with objective evidence current](docs/progressing.jpg)
+
+### Recovered
+
+![Session recovered after QoE validation restores objective progress](docs/recovered.jpg)
+
+---
+
 ## Demo scenario
 
 The seeded Build Week demo follows an edge-routing experiment with the objective:
@@ -111,14 +127,29 @@ Open the local URL printed by the development server.
 
 The demo starts at the baseline at `00:00`. Press **Play** to move through Progressing, Attention needed, Intervention required, Recovered, and Recommendation justified. You can also use the timeline controls or click **Run validation** during the intervention.
 
-For production checks, run:
+---
+
+## Verification
+
+Run the repository checks with:
 
 ```bash
-npm run build
 npm run lint
+npm run build
 ```
 
-The hosted Vercel project uses the Next.js preset with `next build`. The repository's default `npm run build` command retains the Vinext/Cloudflare build path.
+The deterministic engine covers:
+
+- Contract-step progression
+- Legitimate-wait windows
+- Evidence aging
+- Repeated non-progress activity
+- Intervention eligibility
+- Recovery after validation resumes
+
+### Deployment notes
+
+The public demo is deployed on Vercel using the Next.js preset with `next build`. The repository also retains its Vinext/Cloudflare build path for Sites-compatible deployment.
 
 ---
 
@@ -321,7 +352,29 @@ GPT-5.6 does **not** decide:
 
 Those remain deterministic, testable, and auditable.
 
-The checked-in local implementation mirrors the expected response shape so the Build Week demo works offline.
+The submitted replay uses a local deterministic implementation of this response contract so the demo remains reproducible and does not require external credentials. The provider boundary is ready for a connected GPT-5.6 implementation.
+
+---
+
+## Build Week implementation status
+
+### Implemented in this MVP
+
+- Seeded AIRE-Edge replay
+- Typed session contract and event model
+- Deterministic progression engine
+- Evidence-freshness tracking
+- Confidence drift
+- Intervention and recovery workflow
+- Local intelligence response contract
+- Engineer, stakeholder, and retrospective views
+
+### Integration-ready boundaries
+
+- Connected GPT-5.6 provider adapter
+- Live AIRE-Edge event ingestion
+- WebSocket, SSE, webhook, and OpenTelemetry adapters
+- Intervention approval and execution workflow
 
 ---
 
@@ -333,7 +386,7 @@ The result is a codebase where product narrative, deterministic logic, and intel
 
 ---
 
-## Submission framing
+## Product positioning
 
 AIRE-Edge Session Steward is not an observability dashboard and not an AI summarizer for DevOps logs.
 
@@ -344,3 +397,9 @@ Its purpose is to detect when technically healthy activity has stopped producing
 That is the central idea behind the demo, the architecture, and the intervention moment:
 
 > **The system is healthy. The session is not.**
+
+---
+
+## Built for OpenAI Build Week
+
+AIRE-Edge Session Steward was created as a Build Week MVP exploring objective-aware intelligence for long-running technical sessions.
