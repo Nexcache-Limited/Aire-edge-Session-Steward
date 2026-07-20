@@ -125,7 +125,7 @@ npm run dev
 
 Open the local URL printed by the development server.
 
-The demo starts at the baseline at `00:00`. Press **Play** to move through Progressing, Attention needed, Intervention required, Recovered, and Recommendation justified. You can also use the timeline controls or click **Run validation** during the intervention.
+The demo starts at the baseline at `00:00`. Press **Play** to move through Progressing, Attention needed, and Intervention required. During the intervention, **Run validation** advances to Recovered and pauses the replay for presenter commentary. Press **Play** again to reveal Recommendation justified. You can also move between beats with the timeline controls.
 
 ---
 

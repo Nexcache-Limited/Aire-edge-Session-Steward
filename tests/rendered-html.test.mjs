@@ -22,11 +22,10 @@ test("server-renders the Session Steward product", async () => {
   assert.match(html, /AIRE.Edge Session Steward/i);
   assert.match(html, /The system is healthy\. The session is not\./i);
   assert.match(html, /QoE validation/i);
-  assert.match(html, /Intervention required/i);
+  assert.match(html, /Progressing/i);
   assert.match(html, /Objective progress/i);
   assert.match(html, /GPT-5\.6 assessment/i);
   assert.match(html, /Causal evidence path/i);
-  assert.match(html, /24 minutes.*no new objective evidence/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -50,6 +49,11 @@ test("keeps the session engine and intelligence layer separate", async () => {
   assert.match(page, /const replayPositions = \[1, \.\.\.demoStops\]/);
   assert.match(page, /useState\(replayPositions\[0\]\)/);
   assert.match(page, /setVisibleCount\(replayPositions\[0\]\)/);
+  assert.match(page, /function runValidation\(\)[\s\S]*?setPlaying\(false\);[\s\S]*?setVisibleCount\(8\);/);
+  assert.match(page, /if \(nextStop === demoEvents\.length\) setPlaying\(false\);/);
+  assert.match(page, /Intervention required/);
+  assert.match(page, /24 minutes/);
+  assert.match(page, /passed with no new objective evidence/);
   assert.match(page, /Recommendation justified/);
   assert.match(page, /If validation does not begin within 8 minutes/);
   assert.doesNotMatch(page, /Objective evidence · not uptime|None · evidence advancing|CURRENT POSITION/);

@@ -127,6 +127,7 @@ export default function Home() {
         return;
       }
       setVisibleCount(nextStop);
+      if (nextStop === demoEvents.length) setPlaying(false);
     }, 1900 / speed);
     return () => window.clearTimeout(timer);
   }, [playing, speed, visibleCount]);
@@ -143,6 +144,11 @@ export default function Home() {
       return;
     }
     setVisibleCount([...replayPositions].reverse().find((stop) => stop < visibleCount) ?? replayPositions[0]);
+  }
+
+  function runValidation() {
+    setPlaying(false);
+    setVisibleCount(8);
   }
 
   function inspectEvidence(eventId: string) {
@@ -317,7 +323,7 @@ export default function Home() {
                 <span className="section-label">RECOMMENDED ACTION</span>
                 <strong>{state.intervention.recommendedAction}</strong>
               </div>
-              <div className="intervention-actions"><button onClick={() => { setVisibleCount(8); setPlaying(true); }}>RUN VALIDATION NOW →</button><button className="ghost-button" onClick={() => inspectEvidence("evt-07")}>VIEW EVIDENCE</button></div>
+              <div className="intervention-actions"><button onClick={runValidation}>RUN VALIDATION NOW →</button><button className="ghost-button" onClick={() => inspectEvidence("evt-07")}>VIEW EVIDENCE</button></div>
             </div>
           ) : (
             <div className={`reasoning-card ${state.health}`}>
