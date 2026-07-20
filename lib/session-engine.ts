@@ -27,6 +27,9 @@ export function evaluateSession(
 
   for (const event of events) {
     if (event.stepIndex !== undefined) completedSteps.add(event.stepIndex);
+    if (event.kind === "analysis" && event.evidence?.some((item) => item.startsWith("recommendation:"))) {
+      completedSteps.add(contract.expectedSteps.length - 1);
+    }
 
     if (event.meaningfulProgress) {
       unproductiveStreak = 0;

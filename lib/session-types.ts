@@ -81,6 +81,13 @@ export interface StakeholderSummary {
   headline: string;
   body: string;
   businessImpact: string;
+  businessStatus: string;
+  deployment: string;
+  validation: string;
+  deliveryConfidence: string;
+  decision: string;
+  risk: string;
+  recommendedAction: string;
 }
 
 export interface Retrospective {

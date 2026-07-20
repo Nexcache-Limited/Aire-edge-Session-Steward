@@ -10,9 +10,12 @@ The seeded demo follows an edge-routing experiment from baseline through deploym
 - Replayable event ingestion with realistic timestamps and sources
 - Deterministic health states: Progressing, Legitimate wait, Attention needed, Intervention required, and Recovered
 - Confidence drift based on meaningful progress and evidence freshness
+- A persistent objective-progress strip that separates delivery progress from infrastructure health
+- A structured GPT-5.6 assessment with cited signals and stall likelihood
 - Detection of missing follow-through after a successful deployment
-- A prominent intervention with inspectable evidence and a guarded next action
+- A prominent intervention with a 24-minute evidence-gap signal, causal evidence path, and one guarded next action
 - Engineer, stakeholder, and retrospective narratives derived from the current state
+- A stakeholder decision brief for product, leadership, sales, and commercial audiences
 - Responsive product UI and a bespoke share preview
 
 ## Run locally

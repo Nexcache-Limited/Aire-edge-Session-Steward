@@ -24,6 +24,14 @@ const eventMarks: Record<SessionEvent["kind"], string> = {
   analysis: "◎",
 };
 
+const chartAnnotations: Record<string, string> = {
+  "evt-01": "BASELINE",
+  "evt-04": "HEALTHY",
+  "evt-07": "24M GAP",
+  "evt-08": "VALIDATION",
+  "evt-09": "PASSED",
+};
+
 function ConfidenceChart({ points }: { points: ReturnType<typeof evaluateSession>["confidenceHistory"] }) {
   return (
     <div className="confidence-chart" aria-label="Confidence drift over the session">
@@ -35,7 +43,8 @@ function ConfidenceChart({ points }: { points: ReturnType<typeof evaluateSession
           const previous = points[index - 1];
           const delta = previous ? point.score - previous.score : 0;
           return (
-            <div className="chart-column" key={point.eventId} title={`${point.timestamp} · ${point.score}% · ${point.reason}`}>
+            <div className={`chart-column ${["evt-05", "evt-06", "evt-07"].includes(point.eventId) ? "decline" : ""} ${["evt-08", "evt-09", "evt-10"].includes(point.eventId) ? "recovery" : ""}`} key={point.eventId} title={`${point.timestamp} · ${point.score}% · ${point.reason}`}>
+              {chartAnnotations[point.eventId] && <span className="chart-annotation">{chartAnnotations[point.eventId]}</span>}
               <span className={`chart-delta ${delta < 0 ? "down" : delta > 0 ? "up" : ""}`}>
                 {delta === 0 ? "" : `${delta > 0 ? "+" : ""}${delta}`}
               </span>
@@ -49,6 +58,33 @@ function ConfidenceChart({ points }: { points: ReturnType<typeof evaluateSession
   );
 }
 
+function AssessmentPanel({ events, state }: { events: SessionEvent[]; state: ReturnType<typeof evaluateSession> }) {
+  const ids = new Set(events.map((event) => event.id));
+  const validationResumed = ids.has("evt-08");
+  const afterHealth = ids.has("evt-04");
+  const stalledLikelihood = state.health === "intervention_required" ? 91 : state.health === "attention_needed" ? 74 : state.health === "legitimate_wait" ? 28 : state.health === "recovered" ? 7 : 12;
+  const signals = [
+    { label: "Deployment succeeded", tone: ids.has("evt-03") ? "positive" : "pending" },
+    { label: "Health checks passed", tone: ids.has("evt-04") ? "positive" : "pending" },
+    { label: validationResumed ? "QoE validation resumed" : "QoE validation absent", tone: validationResumed ? "positive" : afterHealth ? "negative" : "pending" },
+    { label: state.staleEvidence ? "Objective evidence stale" : validationResumed ? "Objective evidence refreshed" : "Evidence freshness monitored", tone: state.staleEvidence ? "negative" : validationResumed ? "positive" : "pending" },
+    { label: "Repeated polling without objective evidence", tone: ids.has("evt-06") && !validationResumed ? "negative" : ids.has("evt-06") ? "resolved" : "pending" },
+  ];
+
+  return (
+    <section className={`assessment-card ${state.health}`} aria-label="GPT-5.6 assessment">
+      <div className="assessment-heading">
+        <div><p className="section-label">GPT-5.6 ASSESSMENT</p><span>AI JUDGEMENT · GROUNDED IN SESSION EVIDENCE</span></div>
+        <span className="model-badge">5.6</span>
+      </div>
+      <div className="assessment-signals">
+        {signals.map((signal) => <div className={signal.tone} key={signal.label}><span>{signal.tone === "positive" || signal.tone === "resolved" ? "✓" : signal.tone === "negative" ? "×" : "·"}</span><strong>{signal.label}</strong></div>)}
+      </div>
+      <div className="stall-score"><span>LIKELIHOOD SESSION HAS STALLED</span><strong>{stalledLikelihood}%</strong></div>
+    </section>
+  );
+}
+
 export default function Home() {
   const [visibleCount, setVisibleCount] = useState(7);
   const [playing, setPlaying] = useState(false);
@@ -59,6 +95,12 @@ export default function Home() {
   const state = useMemo(() => evaluateSession(demoContract, visibleEvents), [visibleEvents]);
   const intelligence = useMemo(() => generateIntelligence(state), [state]);
   const status = healthCopy[state.health];
+  const objectiveProgress = Math.round((state.completedSteps.length / demoContract.expectedSteps.length) * 100);
+  const currentElapsed = visibleEvents.at(-1)?.elapsedMinutes ?? 0;
+  const lastMeaningful = [...visibleEvents].reverse().find((event) => event.meaningfulProgress);
+  const minutesSinceAdvance = Math.max(0, currentElapsed - (lastMeaningful?.elapsedMinutes ?? 0));
+  const expectedNext = objectiveProgress === 100 ? "Approve controlled 25% promotion" : demoContract.expectedSteps[state.nextStepIndex];
+  const currentBlocker = state.health === "intervention_required" ? "QoE validation absent" : state.health === "attention_needed" ? "Objective evidence aging" : state.health === "recovered" ? "None · evidence advancing" : `Next · ${expectedNext}`;
 
   useEffect(() => {
     if (!playing) return;
@@ -82,9 +124,16 @@ export default function Home() {
     document.getElementById(eventId)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  const evidenceEvents = visibleEvents.filter((event) =>
-    state.intervention?.evidenceIds.includes(event.id) || event.id === visibleEvents.at(-1)?.id,
-  );
+  const visibleIds = new Set(visibleEvents.map((event) => event.id));
+  const validationResumed = visibleIds.has("evt-08");
+  const evidencePath = [
+    { id: "evt-02", label: "Routing changed", detail: "edge-route-v18", state: visibleIds.has("evt-02") ? "done" : "pending" },
+    { id: "evt-03", label: "Deployment completed", detail: "12/12 nodes", state: visibleIds.has("evt-03") ? "done" : "pending" },
+    { id: "evt-04", label: "Health checks passed", detail: "24/24 probes", state: visibleIds.has("evt-04") ? "done" : "pending" },
+    { id: validationResumed ? "evt-08" : "evt-07", label: validationResumed ? "Validation rerun" : visibleIds.has("evt-07") ? "No validation rerun" : "Validation expected", detail: validationResumed ? "qoe-884" : visibleIds.has("evt-07") ? "24m gap" : "waiting", state: validationResumed ? "recovered" : visibleIds.has("evt-07") ? "blocked" : "pending" },
+    { id: validationResumed ? "evt-09" : "evt-07", label: validationResumed ? "Evidence refreshed" : "Evidence stale", detail: validationResumed ? "QoE +10.9%" : state.staleEvidence ? "objective blocked" : "monitoring", state: validationResumed ? "recovered" : state.staleEvidence ? "blocked" : "pending" },
+    { id: validationResumed ? "evt-10" : "evt-07", label: objectiveProgress === 100 ? "Promotion justified" : validationResumed ? "Session recovered" : "Intervention triggered", detail: objectiveProgress === 100 ? "25% cohort" : validationResumed ? "progress restored" : state.intervention ? "steward action" : "not active", state: objectiveProgress === 100 || validationResumed ? "recovered" : state.intervention ? "blocked" : "pending" },
+  ];
 
   return (
     <main className="app-shell">
@@ -112,10 +161,18 @@ export default function Home() {
           <p className="ribbon-objective">{demoContract.objective}</p>
         </div>
         <div className="ribbon-meta">
-          <span>OWNER <strong>M. CHEN</strong></span>
-          <span>ELAPSED <strong>{visibleEvents.at(-1)?.elapsedMinutes ?? 0}M</strong></span>
-          <span>REGION <strong>LHR-EDGE</strong></span>
+          <span>M. CHEN · {currentElapsed}M · LHR-EDGE</span>
         </div>
+      </section>
+
+      <section className={`objective-strip ${state.health}`} aria-label="Objective progress summary">
+        <div className="objective-meter">
+          <div><p className="section-label">OBJECTIVE PROGRESS</p><strong>{objectiveProgress}<span>%</span></strong></div>
+          <div className="objective-track"><span style={{ width: `${objectiveProgress}%` }} /></div>
+        </div>
+        <div className="objective-stat"><span>LAST ADVANCED</span><strong>{minutesSinceAdvance === 0 ? "Just now" : `${minutesSinceAdvance} minutes ago`}</strong><small>Objective evidence · not uptime</small></div>
+        <div className="objective-stat blocker"><span>{state.health === "intervention_required" ? "CURRENT BLOCKER" : "CURRENT POSITION"}</span><strong>{currentBlocker}</strong><small>Infrastructure remains healthy</small></div>
+        <div className="objective-next"><span>EXPECTED NEXT</span><strong>{expectedNext}</strong><i>→</i></div>
       </section>
 
       <div className="workspace-grid">
@@ -195,27 +252,33 @@ export default function Home() {
 
         <aside className="insight-panel panel">
           <div className="state-header">
-            <div><p className="section-label">03 · SESSION HEALTH</p><span className="state-eyebrow">{status.eyebrow}</span></div>
+            <div><p className="section-label">03 · SESSION JUDGEMENT</p><span className="state-eyebrow">{status.eyebrow}</span></div>
             <span className={`state-orb ${state.health}`} />
           </div>
           <h2 className={`state-title ${state.health}`}>{status.label}</h2>
 
           <div className="confidence-header">
-            <div><p className="section-label">CONFIDENCE</p><strong>{state.confidence}<span>%</span></strong></div>
+            <div><p className="section-label">DELIVERY CONFIDENCE</p><strong>{state.confidence}<span>%</span></strong></div>
             <p>{state.confidenceHistory.at(-1)?.reason}</p>
           </div>
           <ConfidenceChart points={state.confidenceHistory} />
+
+          <AssessmentPanel events={visibleEvents} state={state} />
 
           {state.intervention ? (
             <div className="intervention-card">
               <div className="intervention-label"><span>!</span> STEWARD INTERVENTION</div>
               <h3>{state.intervention.title}</h3>
-              <p>{state.intervention.explanation}</p>
+              <div className="gap-alert"><strong>24 minutes</strong><span>passed with no new objective evidence</span></div>
+              <div className="intervention-diagnosis">
+                <div><span>DIAGNOSIS</span><p>{state.intervention.explanation}</p></div>
+                <div><span>WHY CONFIDENCE IS DECLINING</span><p>Two deployment polls repeated infrastructure health without producing decision-grade QoE evidence.</p></div>
+              </div>
               <div className="recommended-action">
-                <span className="section-label">RECOMMENDED NEXT ACTION</span>
+                <span className="section-label">ONE RECOMMENDED ACTION</span>
                 <strong>{state.intervention.recommendedAction}</strong>
               </div>
-              <div className="intervention-actions"><button onClick={() => { setVisibleCount(8); setPlaying(true); }}>RUN VALIDATION</button><button className="ghost-button">ASSIGN ↗</button></div>
+              <div className="intervention-actions"><button onClick={() => { setVisibleCount(8); setPlaying(true); }}>RUN VALIDATION NOW →</button><button className="ghost-button" onClick={() => inspectEvidence("evt-07")}>VIEW EVIDENCE</button></div>
             </div>
           ) : (
             <div className={`reasoning-card ${state.health}`}>
@@ -226,14 +289,16 @@ export default function Home() {
           )}
 
           <div className="evidence-block">
-            <div className="evidence-heading"><p className="section-label">EVIDENCE CHAIN</p><span>{evidenceEvents.length} SIGNALS</span></div>
-            {evidenceEvents.map((event) => (
-              <button className={selectedEvidence === event.id ? "active" : ""} onClick={() => inspectEvidence(event.id)} key={event.id}>
-                <span className={`evidence-dot ${event.outcome}`} />
-                <span><strong>{event.title}</strong><small>{event.timestamp} · {event.source}</small></span>
-                <i>↗</i>
+            <div className="evidence-heading"><div><p className="section-label">CAUSAL EVIDENCE PATH</p><small>HOW THE STEWARD REACHED ITS JUDGEMENT</small></div><span>6 LINKS</span></div>
+            <div className="causal-flow">
+            {evidencePath.map((item, index) => (
+              <button className={`${item.state} ${selectedEvidence === item.id ? "active" : ""}`} disabled={!visibleIds.has(item.id)} onClick={() => inspectEvidence(item.id)} key={`${item.label}-${index}`}>
+                <span className="causal-index">{String(index + 1).padStart(2, "0")}</span>
+                <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+                <i>{index < evidencePath.length - 1 ? "↓" : item.state === "blocked" ? "!" : "✓"}</i>
               </button>
             ))}
+            </div>
           </div>
         </aside>
       </div>
@@ -249,12 +314,12 @@ export default function Home() {
         </div>
         <div className="narrative-content">
           {activeTab === "engineer" && <><div><span className="narrative-number">01</span><h2>{intelligence.engineer.headline}</h2><p>{intelligence.engineer.body}</p></div><ul>{intelligence.engineer.details.map((item) => <li key={item}>{item}</li>)}</ul></>}
-          {activeTab === "stakeholder" && <><div><span className="narrative-number">02</span><h2>{intelligence.stakeholder.headline}</h2><p>{intelligence.stakeholder.body}</p></div><div className="impact-box"><span>DECISION</span><strong>{intelligence.stakeholder.businessImpact}</strong></div></>}
+          {activeTab === "stakeholder" && <div className="stakeholder-card"><div className="stakeholder-lead"><span className="narrative-number">02 · BUSINESS DECISION BRIEF</span><h2>{intelligence.stakeholder.headline}</h2><p>{intelligence.stakeholder.body}</p></div><div className="decision-grid"><div><span>BUSINESS STATUS</span><strong>{intelligence.stakeholder.businessStatus}</strong></div><div><span>DEPLOYMENT</span><strong>{intelligence.stakeholder.deployment}</strong></div><div><span>VALIDATION</span><strong>{intelligence.stakeholder.validation}</strong></div><div><span>DELIVERY CONFIDENCE</span><strong>{intelligence.stakeholder.deliveryConfidence}</strong></div><div className="decision-cell"><span>DECISION</span><strong>{intelligence.stakeholder.decision}</strong></div><div className="risk-cell"><span>RISK</span><strong>{intelligence.stakeholder.risk}</strong></div></div><div className="business-action"><span>RECOMMENDED BUSINESS ACTION</span><strong>{intelligence.stakeholder.recommendedAction}</strong></div></div>}
           {activeTab === "retrospective" && <><div><span className="narrative-number">03</span><h2>{intelligence.retrospective.outcome}</h2><p>{intelligence.retrospective.nextTime}</p></div><ul>{intelligence.retrospective.learned.map((item) => <li key={item}>{item}</li>)}</ul></>}
         </div>
       </section>
 
-      <footer><span>AIRE–EDGE SESSION STEWARD · BUILD WEEK MVP</span><span>DETERMINISTIC ENGINE + GPT-5.6 REASONING BOUNDARY</span></footer>
+      <footer><span>AIRE–EDGE SESSION STEWARD · BUILD WEEK MVP</span><span>OBJECTIVE-AWARE SESSION INTELLIGENCE · NOT INFRASTRUCTURE SUMMARY</span></footer>
     </main>
   );
 }

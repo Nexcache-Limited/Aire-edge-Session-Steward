@@ -23,6 +23,10 @@ test("server-renders the Session Steward product", async () => {
   assert.match(html, /The system is healthy\. The session is not\./i);
   assert.match(html, /QoE validation/i);
   assert.match(html, /Intervention required/i);
+  assert.match(html, /Objective progress/i);
+  assert.match(html, /GPT-5\.6 assessment/i);
+  assert.match(html, /Causal evidence path/i);
+  assert.match(html, /24 minutes.*no new objective evidence/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -37,6 +41,8 @@ test("keeps the session engine and intelligence layer separate", async () => {
   assert.match(engine, /missingFollowThrough/);
   assert.match(engine, /intervention_required/);
   assert.match(intelligence, /generateIntelligence/);
+  assert.match(intelligence, /businessStatus/);
+  assert.match(intelligence, /recommendedAction/);
   assert.match(types, /interface SessionContract/);
   assert.match(types, /interface Retrospective/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

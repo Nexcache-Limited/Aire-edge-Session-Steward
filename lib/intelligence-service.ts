@@ -51,6 +51,13 @@ export function generateIntelligence(state: SessionState): IntelligenceOutput {
       businessImpact: isRecovered
         ? "Proceed with a controlled 25% rollout while monitoring the same quality guardrails."
         : "Hold promotion until fresh validation confirms customer benefit and risk.",
+      businessStatus: isRecovered ? "Ready for controlled promotion" : needsAction ? "Blocked on proof of customer value" : "Evidence gathering in progress",
+      deployment: "Healthy · 12/12 edge nodes",
+      validation: isRecovered ? "Passed · +10.9% QoE" : needsAction ? "Missing · not rerun after change" : "Pending in contracted sequence",
+      deliveryConfidence: isRecovered ? "High · evidence is current" : needsAction ? "Low · objective evidence is stale" : "Moderate · on plan",
+      decision: isRecovered ? "Promote to a 25% cohort" : "Do not promote yet",
+      risk: isRecovered ? "Low · packet loss remains below 1.2%" : "Customer benefit is unproven despite a healthy deployment",
+      recommendedAction: isRecovered ? "Approve controlled promotion with the same QoE guardrails." : "Hold the release decision until the low-bandwidth validation produces fresh evidence.",
     },
     retrospective: {
       outcome: isRecovered ? "Recovered after a 24-minute follow-through gap; all success criteria met." : "Session remains open pending objective validation.",
