@@ -7,12 +7,15 @@ import { evaluateSession } from "../lib/session-engine";
 import type { SessionEvent, SessionHealth } from "../lib/session-types";
 
 const healthCopy: Record<SessionHealth, { label: string; eyebrow: string }> = {
-  progressing: { label: "Progressing", eyebrow: "On contract" },
-  legitimate_wait: { label: "Legitimate wait", eyebrow: "Within window" },
-  attention_needed: { label: "Attention needed", eyebrow: "Momentum fading" },
-  intervention_required: { label: "Intervention required", eyebrow: "Objective at risk" },
-  recovered: { label: "Recovered", eyebrow: "Momentum restored" },
+  progressing: { label: "Progressing", eyebrow: "Objective on track" },
+  legitimate_wait: { label: "Waiting as expected", eyebrow: "Within the planned window" },
+  attention_needed: { label: "Attention needed", eyebrow: "Evidence is overdue" },
+  intervention_required: { label: "Intervention required", eyebrow: "Objective progress has stopped" },
+  recovered: { label: "Recovered", eyebrow: "Fresh evidence is arriving" },
 };
+
+const demoStops = [4, 6, 7, 8, 10];
+const demoBeatLabels = ["Progressing", "Attention needed", "Intervention", "Recovered", "Recommendation"];
 
 const eventMarks: Record<SessionEvent["kind"], string> = {
   milestone: "✓",
@@ -61,12 +64,12 @@ function ConfidenceChart({ points }: { points: ReturnType<typeof evaluateSession
 function AssessmentPanel({ events, state }: { events: SessionEvent[]; state: ReturnType<typeof evaluateSession> }) {
   const ids = new Set(events.map((event) => event.id));
   const validationResumed = ids.has("evt-08");
-  const afterHealth = ids.has("evt-04");
+  const evidenceOverdue = state.health === "attention_needed" || state.health === "intervention_required";
   const stalledLikelihood = state.health === "intervention_required" ? 91 : state.health === "attention_needed" ? 74 : state.health === "legitimate_wait" ? 28 : state.health === "recovered" ? 7 : 12;
   const signals = [
     { label: "Deployment succeeded", tone: ids.has("evt-03") ? "positive" : "pending" },
     { label: "Health checks passed", tone: ids.has("evt-04") ? "positive" : "pending" },
-    { label: validationResumed ? "QoE validation resumed" : "QoE validation absent", tone: validationResumed ? "positive" : afterHealth ? "negative" : "pending" },
+    { label: validationResumed ? "QoE validation resumed" : evidenceOverdue ? "QoE validation overdue" : "QoE validation is next", tone: validationResumed ? "positive" : evidenceOverdue ? "negative" : "pending" },
     { label: state.staleEvidence ? "Objective evidence stale" : validationResumed ? "Objective evidence refreshed" : "Evidence freshness monitored", tone: state.staleEvidence ? "negative" : validationResumed ? "positive" : "pending" },
     { label: "Repeated polling without objective evidence", tone: ids.has("evt-06") && !validationResumed ? "negative" : ids.has("evt-06") ? "resolved" : "pending" },
   ];
@@ -74,13 +77,13 @@ function AssessmentPanel({ events, state }: { events: SessionEvent[]; state: Ret
   return (
     <section className={`assessment-card ${state.health}`} aria-label="GPT-5.6 assessment">
       <div className="assessment-heading">
-        <div><p className="section-label">GPT-5.6 ASSESSMENT</p><span>AI JUDGEMENT · GROUNDED IN SESSION EVIDENCE</span></div>
+        <div><p className="section-label">GPT-5.6 ASSESSMENT</p><span>AI JUDGEMENT · BASED ON SESSION EVIDENCE</span></div>
         <span className="model-badge">5.6</span>
       </div>
       <div className="assessment-signals">
         {signals.map((signal) => <div className={signal.tone} key={signal.label}><span>{signal.tone === "positive" || signal.tone === "resolved" ? "✓" : signal.tone === "negative" ? "×" : "·"}</span><strong>{signal.label}</strong></div>)}
       </div>
-      <div className="stall-score"><span>LIKELIHOOD SESSION HAS STALLED</span><strong>{stalledLikelihood}%</strong></div>
+      <div className="stall-score"><span>ESTIMATED LIKELIHOOD OF A STALL</span><strong>{stalledLikelihood}%</strong></div>
     </section>
   );
 }
@@ -94,29 +97,51 @@ export default function Home() {
   const visibleEvents = useMemo(() => demoEvents.slice(0, visibleCount), [visibleCount]);
   const state = useMemo(() => evaluateSession(demoContract, visibleEvents), [visibleEvents]);
   const intelligence = useMemo(() => generateIntelligence(state), [state]);
-  const status = healthCopy[state.health];
   const objectiveProgress = Math.round((state.completedSteps.length / demoContract.expectedSteps.length) * 100);
+  const recommendationReady = objectiveProgress === 100;
+  const status = recommendationReady ? { label: "Recommendation justified", eyebrow: "All success criteria met" } : healthCopy[state.health];
   const currentElapsed = visibleEvents.at(-1)?.elapsedMinutes ?? 0;
   const lastMeaningful = [...visibleEvents].reverse().find((event) => event.meaningfulProgress);
   const minutesSinceAdvance = Math.max(0, currentElapsed - (lastMeaningful?.elapsedMinutes ?? 0));
-  const expectedNext = objectiveProgress === 100 ? "Approve controlled 25% promotion" : demoContract.expectedSteps[state.nextStepIndex];
-  const currentBlocker = state.health === "intervention_required" ? "QoE validation absent" : state.health === "attention_needed" ? "Objective evidence aging" : state.health === "recovered" ? "None · evidence advancing" : `Next · ${expectedNext}`;
+  const expectedNext = recommendationReady ? "Approve the 25% traffic rollout" : demoContract.expectedSteps[state.nextStepIndex];
+  const currentPosition = recommendationReady
+    ? "Evidence complete · promotion supported"
+    : state.health === "intervention_required"
+      ? "Blocked · validation has not started"
+      : state.health === "attention_needed"
+        ? "At risk · validation evidence is overdue"
+        : state.health === "recovered"
+          ? "Back on track · validation is running"
+          : state.health === "legitimate_wait"
+            ? "On track · waiting within the planned window"
+            : `On track · advancing toward ${expectedNext.toLowerCase()}`;
+  const currentDemoStop = Math.max(0, demoStops.findIndex((stop) => stop >= visibleCount));
 
   useEffect(() => {
     if (!playing) return;
     const timer = window.setTimeout(() => {
-      if (visibleCount >= demoEvents.length) {
+      const nextStop = demoStops.find((stop) => stop > visibleCount);
+      if (!nextStop) {
         setPlaying(false);
         return;
       }
-      setVisibleCount((count) => count + 1);
-    }, 1500 / speed);
+      setVisibleCount(nextStop);
+    }, 1900 / speed);
     return () => window.clearTimeout(timer);
   }, [playing, speed, visibleCount]);
 
   function toggleReplay() {
-    if (visibleCount >= demoEvents.length) setVisibleCount(1);
+    if (visibleCount >= demoEvents.length) setVisibleCount(demoStops[0]);
     setPlaying((current) => !current);
+  }
+
+  function stepReplay(direction: -1 | 1) {
+    setPlaying(false);
+    if (direction === 1) {
+      setVisibleCount(demoStops.find((stop) => stop > visibleCount) ?? demoStops.at(-1) ?? visibleCount);
+      return;
+    }
+    setVisibleCount([...demoStops].reverse().find((stop) => stop < visibleCount) ?? demoStops[0]);
   }
 
   function inspectEvidence(eventId: string) {
@@ -126,13 +151,14 @@ export default function Home() {
 
   const visibleIds = new Set(visibleEvents.map((event) => event.id));
   const validationResumed = visibleIds.has("evt-08");
+  const validationMissing = state.health === "attention_needed" || state.health === "intervention_required";
   const evidencePath = [
     { id: "evt-02", label: "Routing changed", detail: "edge-route-v18", state: visibleIds.has("evt-02") ? "done" : "pending" },
     { id: "evt-03", label: "Deployment completed", detail: "12/12 nodes", state: visibleIds.has("evt-03") ? "done" : "pending" },
     { id: "evt-04", label: "Health checks passed", detail: "24/24 probes", state: visibleIds.has("evt-04") ? "done" : "pending" },
-    { id: validationResumed ? "evt-08" : "evt-07", label: validationResumed ? "Validation rerun" : visibleIds.has("evt-07") ? "No validation rerun" : "Validation expected", detail: validationResumed ? "qoe-884" : visibleIds.has("evt-07") ? "24m gap" : "waiting", state: validationResumed ? "recovered" : visibleIds.has("evt-07") ? "blocked" : "pending" },
-    { id: validationResumed ? "evt-09" : "evt-07", label: validationResumed ? "Evidence refreshed" : "Evidence stale", detail: validationResumed ? "QoE +10.9%" : state.staleEvidence ? "objective blocked" : "monitoring", state: validationResumed ? "recovered" : state.staleEvidence ? "blocked" : "pending" },
-    { id: validationResumed ? "evt-10" : "evt-07", label: objectiveProgress === 100 ? "Promotion justified" : validationResumed ? "Session recovered" : "Intervention triggered", detail: objectiveProgress === 100 ? "25% cohort" : validationResumed ? "progress restored" : state.intervention ? "steward action" : "not active", state: objectiveProgress === 100 || validationResumed ? "recovered" : state.intervention ? "blocked" : "pending" },
+    { id: validationResumed ? "evt-08" : visibleIds.has("evt-07") ? "evt-07" : "evt-06", label: validationResumed ? "Validation resumed" : validationMissing ? "Validation did not start" : "Validation is next", detail: validationResumed ? "qoe-884 is running" : state.health === "attention_needed" ? "Handoff at risk · 16m overdue" : visibleIds.has("evt-07") ? "Broken handoff · 24m overdue" : "Awaiting the planned handoff", state: validationResumed ? "recovered" : state.health === "attention_needed" ? "warning" : visibleIds.has("evt-07") ? "blocked" : "pending" },
+    { id: validationResumed ? "evt-09" : visibleIds.has("evt-07") ? "evt-07" : "evt-06", label: validationResumed ? "Evidence is current" : "Evidence is stale", detail: validationResumed ? "QoE +10.9%" : state.staleEvidence ? "No new outcome evidence" : "Freshness monitored", state: validationResumed ? "recovered" : state.health === "attention_needed" ? "warning" : state.staleEvidence ? "blocked" : "pending" },
+    { id: validationResumed ? "evt-10" : "evt-07", label: recommendationReady ? "Promotion justified" : validationResumed ? "Session recovered" : "Intervention triggered", detail: recommendationReady ? "25% cohort recommended" : validationResumed ? "Objective progress restored" : state.intervention ? "Action required" : "Not triggered", state: recommendationReady || validationResumed ? "recovered" : state.intervention ? "blocked" : "pending" },
   ];
 
   return (
@@ -170,9 +196,9 @@ export default function Home() {
           <div><p className="section-label">OBJECTIVE PROGRESS</p><strong>{objectiveProgress}<span>%</span></strong></div>
           <div className="objective-track"><span style={{ width: `${objectiveProgress}%` }} /></div>
         </div>
-        <div className="objective-stat"><span>LAST ADVANCED</span><strong>{minutesSinceAdvance === 0 ? "Just now" : `${minutesSinceAdvance} minutes ago`}</strong><small>Objective evidence · not uptime</small></div>
-        <div className="objective-stat blocker"><span>{state.health === "intervention_required" ? "CURRENT BLOCKER" : "CURRENT POSITION"}</span><strong>{currentBlocker}</strong><small>Infrastructure remains healthy</small></div>
-        <div className="objective-next"><span>EXPECTED NEXT</span><strong>{expectedNext}</strong><i>→</i></div>
+        <div className="objective-stat"><span>LAST OBJECTIVE PROGRESS</span><strong>{minutesSinceAdvance === 0 ? "Just now" : `${minutesSinceAdvance} minutes ago`}</strong><small>Measured by new outcome evidence</small></div>
+        <div className="objective-stat blocker"><span>SESSION POSITION</span><strong>{currentPosition}</strong><small>Infrastructure health: stable</small></div>
+        <div className="objective-next"><span>NEXT REQUIRED STEP</span><strong>{expectedNext}</strong><i>→</i></div>
       </section>
 
       <div className="workspace-grid">
@@ -212,11 +238,11 @@ export default function Home() {
 
         <section className="timeline-panel panel">
           <div className="panel-heading timeline-heading">
-            <div><p className="section-label">02 · LIVE SESSION</p><h2>Objective timeline</h2></div>
+            <div><p className="section-label">02 · SESSION REPLAY</p><h2>Objective timeline</h2><span className="demo-beat">BEAT {currentDemoStop + 1} OF 5 · {demoBeatLabels[currentDemoStop]}</span></div>
             <div className="replay-controls">
-              <button className="icon-button" onClick={() => setVisibleCount(Math.max(1, visibleCount - 1))} aria-label="Step backward">‹</button>
+              <button className="icon-button" onClick={() => stepReplay(-1)} aria-label="Previous demo beat">‹</button>
               <button className="play-button" onClick={toggleReplay}>{playing ? "PAUSE" : visibleCount === demoEvents.length ? "REPLAY" : "PLAY"}</button>
-              <button className="icon-button" onClick={() => setVisibleCount(Math.min(demoEvents.length, visibleCount + 1))} aria-label="Step forward">›</button>
+              <button className="icon-button" onClick={() => stepReplay(1)} aria-label="Next demo beat">›</button>
               <button className="speed-button" onClick={() => setSpeed((value) => value === 2 ? 1 : 2)}>{speed}×</button>
             </div>
           </div>
@@ -255,7 +281,7 @@ export default function Home() {
             <div><p className="section-label">03 · SESSION JUDGEMENT</p><span className="state-eyebrow">{status.eyebrow}</span></div>
             <span className={`state-orb ${state.health}`} />
           </div>
-          <h2 className={`state-title ${state.health}`}>{status.label}</h2>
+          <h2 className={`state-title ${state.health} ${recommendationReady ? "recommendation-ready" : ""}`}>{status.label}</h2>
 
           <div className="confidence-header">
             <div><p className="section-label">DELIVERY CONFIDENCE</p><strong>{state.confidence}<span>%</span></strong></div>
@@ -265,7 +291,19 @@ export default function Home() {
 
           <AssessmentPanel events={visibleEvents} state={state} />
 
-          {state.intervention ? (
+          {recommendationReady ? (
+            <div className="final-recommendation-card">
+              <div className="final-recommendation-label"><span>✓</span> FINAL RECOMMENDATION</div>
+              <h3>Promote edge-route-v18 to 25% of traffic.</h3>
+              <p>The session now has current, decision-grade evidence. Every success criterion is met.</p>
+              <div className="recommendation-proof">
+                <div><span>VALIDATION</span><strong>Passed</strong><small>3 bandwidth tiers</small></div>
+                <div><span>QoE</span><strong>+10.9%</strong><small>71.4 → 79.2</small></div>
+                <div><span>PACKET LOSS</span><strong>0.9%</strong><small>Below 1.2% guardrail</small></div>
+              </div>
+              <div className="promotion-decision"><span>DECISION</span><strong>Promotion is justified. Retain the 1.2% packet-loss stop condition.</strong></div>
+            </div>
+          ) : state.intervention ? (
             <div className="intervention-card">
               <div className="intervention-label"><span>!</span> STEWARD INTERVENTION</div>
               <h3>{state.intervention.title}</h3>
@@ -275,27 +313,28 @@ export default function Home() {
                 <div><span>WHY CONFIDENCE IS DECLINING</span><p>Two deployment polls repeated infrastructure health without producing decision-grade QoE evidence.</p></div>
               </div>
               <div className="recommended-action">
-                <span className="section-label">ONE RECOMMENDED ACTION</span>
+                <span className="section-label">RECOMMENDED ACTION</span>
                 <strong>{state.intervention.recommendedAction}</strong>
               </div>
               <div className="intervention-actions"><button onClick={() => { setVisibleCount(8); setPlaying(true); }}>RUN VALIDATION NOW →</button><button className="ghost-button" onClick={() => inspectEvidence("evt-07")}>VIEW EVIDENCE</button></div>
             </div>
           ) : (
             <div className={`reasoning-card ${state.health}`}>
-              <p className="section-label">WHY CONFIDENCE CHANGED</p>
+              <p className="section-label">{state.health === "attention_needed" ? "WHY ATTENTION IS NEEDED" : "WHY CONFIDENCE CHANGED"}</p>
               <h3>{intelligence.reasoning}</h3>
-              <div className="next-action-line"><span>EXPECTED NEXT</span><strong>{demoContract.expectedSteps[state.nextStepIndex]}</strong></div>
+              {state.health === "attention_needed" && <div className="attention-bridge"><div><span>INFRASTRUCTURE</span><strong>Healthy</strong></div><i>≠</i><div><span>OBJECTIVE PROGRESS</span><strong>Slowing</strong></div><p>Risk is rising. If validation does not begin within 8 minutes, the steward will intervene.</p></div>}
+              <div className="next-action-line"><span>NEXT REQUIRED STEP</span><strong>{expectedNext}</strong></div>
             </div>
           )}
 
           <div className="evidence-block">
-            <div className="evidence-heading"><div><p className="section-label">CAUSAL EVIDENCE PATH</p><small>HOW THE STEWARD REACHED ITS JUDGEMENT</small></div><span>6 LINKS</span></div>
+            <div className="evidence-heading"><div><p className="section-label">CAUSAL EVIDENCE PATH</p><small>HOW THE STEWARD REACHED THIS ASSESSMENT</small></div><span>6 LINKS</span></div>
             <div className="causal-flow">
             {evidencePath.map((item, index) => (
               <button className={`${item.state} ${selectedEvidence === item.id ? "active" : ""}`} disabled={!visibleIds.has(item.id)} onClick={() => inspectEvidence(item.id)} key={`${item.label}-${index}`}>
-                <span className="causal-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className="causal-index">{item.state === "done" || item.state === "recovered" ? "✓" : item.state === "blocked" ? "×" : item.state === "warning" ? "!" : ""}</span>
                 <span><strong>{item.label}</strong><small>{item.detail}</small></span>
-                <i>{index < evidencePath.length - 1 ? "↓" : item.state === "blocked" ? "!" : "✓"}</i>
+                <i>{item.state === "blocked" ? "BROKEN" : item.state === "warning" ? "AT RISK" : item.state === "recovered" ? "RESTORED" : index < evidencePath.length - 1 ? "" : "COMPLETE"}</i>
               </button>
             ))}
             </div>
@@ -319,7 +358,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer><span>AIRE–EDGE SESSION STEWARD · BUILD WEEK MVP</span><span>OBJECTIVE-AWARE SESSION INTELLIGENCE · NOT INFRASTRUCTURE SUMMARY</span></footer>
+      <footer><span>AIRE–EDGE SESSION STEWARD · BUILD WEEK MVP</span><span>TRACKING OUTCOMES · NOT JUST SYSTEM HEALTH</span></footer>
     </main>
   );
 }

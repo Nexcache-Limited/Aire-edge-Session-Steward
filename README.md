@@ -4,6 +4,8 @@ A production-quality MVP for **AI Session Intelligence**: a product that monitor
 
 The seeded demo follows an edge-routing experiment from baseline through deployment, healthy infrastructure, missing QoE follow-through, a confidence decline, an evidence-backed intervention, and recovery.
 
+The replay is paced as five presentation-ready beats—Progressing, Attention needed, Intervention required, Recovered, and Recommendation justified—while retaining the complete event history in the timeline.
+
 ## What the demo shows
 
 - A session contract with an objective, ordered steps, and measurable success criteria

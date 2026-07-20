@@ -31,10 +31,11 @@ test("server-renders the Session Steward product", async () => {
 });
 
 test("keeps the session engine and intelligence layer separate", async () => {
-  const [engine, intelligence, types, packageJson] = await Promise.all([
+  const [engine, intelligence, types, page, packageJson] = await Promise.all([
     readFile(new URL("../lib/session-engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/intelligence-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/session-types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
@@ -45,6 +46,10 @@ test("keeps the session engine and intelligence layer separate", async () => {
   assert.match(intelligence, /recommendedAction/);
   assert.match(types, /interface SessionContract/);
   assert.match(types, /interface Retrospective/);
+  assert.match(page, /const demoStops = \[4, 6, 7, 8, 10\]/);
+  assert.match(page, /Recommendation justified/);
+  assert.match(page, /If validation does not begin within 8 minutes/);
+  assert.doesNotMatch(page, /Objective evidence · not uptime|None · evidence advancing|CURRENT POSITION/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await access(new URL("../public/og.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
