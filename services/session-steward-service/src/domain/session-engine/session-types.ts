@@ -13,6 +13,7 @@ export interface SessionRecord {
   environmentId?: string;
   objective: string;
   workflowType: string;
+  workflowId?: string;
   status: string;
   activeContractId?: string;
   createdAt: string;
@@ -62,6 +63,7 @@ export interface SessionEventRecord {
   normalizedEventType: string;
   sourceRef?: string;
   workflowId?: string;
+  environmentId?: string;
   occurredAt: string;
   payload: Record<string, unknown>;
   ingestedAt: string;

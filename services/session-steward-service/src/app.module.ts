@@ -1,10 +1,16 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 
 import { SessionStewardApplicationModule } from './application/session-steward-application.module';
 import { HealthModule } from './health/health.module';
-import { DatabaseModule } from './infrastructure/database/database.module';
+import { SessionIngestModule } from './infrastructure/ingest/session-ingest.module';
 
 @Module({
-  imports: [DatabaseModule, SessionStewardApplicationModule, HealthModule],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    SessionStewardApplicationModule,
+    SessionIngestModule,
+    HealthModule,
+  ],
 })
 export class AppModule {}

@@ -8,6 +8,25 @@
 
 **Initial workflow:** Edge rollout plus QoE validation.
 
+## Live ingest configuration
+
+Set `NATS_ENABLED=true` to start the Sprint 2 listeners.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/session_steward_service` | PostgreSQL connection |
+| `NATS_ENABLED` | `false` | Enables live subscribers |
+| `NATS_URL` | `nats://localhost:4222` | NATS server |
+| `NATS_DEPLOYMENT_SUBJECT` | `aire.deployment.events` | Deployment events |
+| `NATS_TELEMETRY_SUBJECT` | `aire.telemetry.events` | Telemetry events |
+
+Read APIs require an `x-tenant-id` header:
+
+- `GET /sessions`
+- `GET /sessions/:id`
+- `GET /sessions/:id/timeline`
+- `GET /sessions/:id/assessments?limit=25`
+
 ## Structure
 
 - `src/domain` - pure deterministic session engine

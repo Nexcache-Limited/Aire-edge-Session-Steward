@@ -4,9 +4,9 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
 @Index('idx_steward_events_session_time', ['sessionId', 'occurredAt'])
 @Index('idx_steward_events_workflow', ['workflowId'])
 @Index('idx_steward_events_normalized_type', ['normalizedEventType'])
-@Index('uq_steward_events_tenant_source', ['tenantId', 'sourceService', 'sourceRef'], {
+@Index('idx_steward_events_source_ref', ['tenantId', 'sourceService', 'sourceRef'])
+@Index('uq_steward_events_external_event', ['tenantId', 'sourceService', 'externalEventId'], {
   unique: true,
-  where: 'source_ref IS NOT NULL',
 })
 export class SessionEventEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -14,6 +14,9 @@ export class SessionEventEntity {
 
   @Column({ name: 'session_id', type: 'uuid', nullable: true })
   sessionId!: string | null;
+
+  @Column({ name: 'external_event_id', type: 'text' })
+  externalEventId!: string;
 
   @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
@@ -32,6 +35,9 @@ export class SessionEventEntity {
 
   @Column({ name: 'workflow_id', type: 'text', nullable: true })
   workflowId!: string | null;
+
+  @Column({ name: 'environment_id', type: 'uuid', nullable: true })
+  environmentId!: string | null;
 
   @Column({ name: 'occurred_at', type: 'timestamptz' })
   occurredAt!: Date;
