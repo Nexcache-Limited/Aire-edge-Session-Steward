@@ -9,6 +9,12 @@ import {
 
 @Entity('steward_sessions')
 @Index('idx_steward_sessions_tenant_status', ['tenantId', 'status'])
+@Index('idx_steward_sessions_correlation', [
+  'tenantId',
+  'workflowId',
+  'environmentId',
+  'status',
+])
 export class SessionEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -24,6 +30,9 @@ export class SessionEntity {
 
   @Column({ name: 'workflow_type', type: 'text' })
   workflowType!: string;
+
+  @Column({ name: 'workflow_id', type: 'text', nullable: true })
+  workflowId!: string | null;
 
   @Column({ type: 'text', default: 'active' })
   status!: string;
