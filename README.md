@@ -147,6 +147,21 @@ The deterministic engine covers:
 - Intervention eligibility
 - Recovery after validation resumes
 
+### Sprint 1 backend service
+
+The production-oriented NestJS scaffold lives in
+`services/session-steward-service`. It contains the canonical session domain
+types, the pure deterministic engine, TypeORM entities, and the initial
+PostgreSQL migration. It is intentionally isolated from the demo UI build.
+
+```bash
+cd services/session-steward-service
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
 ### Deployment notes
 
 The public demo is deployed on Vercel using the Next.js preset with `next build`. The repository also retains its Vinext/Cloudflare build path for Sites-compatible deployment.
