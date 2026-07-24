@@ -25,6 +25,10 @@ export interface SessionContractRecord {
   sessionId: string;
   version: number;
   name: string;
+  description?: string;
+  objectiveId?: string;
+  objectiveType?: string;
+  templateId?: string;
   createdAt: string;
 }
 
@@ -34,7 +38,12 @@ export interface SessionContractStepRecord {
   stepOrder: number;
   stepKey: string;
   title: string;
+  description?: string;
   expectedEventType: string;
+  expectedEvidenceKinds?: SessionEvidenceKind[];
+  freshnessRequirementSeconds?: number;
+  successCriterionKey?: string;
+  operatorRationale?: string;
   maxWaitSeconds?: number;
   required: boolean;
   successRule: Record<string, unknown>;
@@ -72,11 +81,45 @@ export interface SessionEventRecord {
 export interface SessionEvidenceRecord {
   id: string;
   sessionId: string;
+  tenantId?: string;
   evidenceType: string;
+  evidenceKind?: SessionEvidenceKind;
+  sourceService?: 'qoe-service' | 'evidence-service';
   sourceEventId?: string;
+  sourceRef?: string;
+  metricSet?: SessionEvidenceMetricSet;
+  artifact?: SessionEvidenceArtifact;
   freshnessExpiresAt?: string;
+  recordedAt?: string;
   value: Record<string, unknown>;
   createdAt: string;
+}
+
+export type SessionEvidenceKind =
+  | 'baseline_qoe'
+  | 'post_change_qoe'
+  | 'qoe_comparison'
+  | 'promotion_recommendation'
+  | 'artifact'
+  | 'citation'
+  | 'note';
+
+export interface SessionEvidenceMetricSet {
+  qoeScore?: number;
+  packetLossPct?: number;
+  latencyMs?: number;
+  jitterMs?: number;
+  bandwidthTier?: 'low' | 'medium' | 'high';
+  bandwidthTiers?: number;
+  cohortPct?: number;
+  comparisonDeltaPct?: number;
+}
+
+export interface SessionEvidenceArtifact {
+  artifactType?: string;
+  uri?: string;
+  title?: string;
+  citationKey?: string;
 }
 
 export interface SessionAssessmentSignal {
@@ -93,6 +136,21 @@ export interface SessionCriterionAssessment {
   thresholdValue?: number;
 }
 
+export type ContractStepStatus =
+  | 'pending'
+  | 'satisfied'
+  | 'stale'
+  | 'failed'
+  | 'attention_needed';
+
+export interface ContractStepAssessment {
+  stepKey: string;
+  title: string;
+  status: ContractStepStatus;
+  evidenceIds: string[];
+  explanation: string;
+}
+
 export interface SessionAssessmentRecord {
   id: string;
   sessionId: string;
@@ -105,6 +163,9 @@ export interface SessionAssessmentRecord {
     staleEvidenceAgeSeconds?: number;
     repeatedNonProgressCount?: number;
     successCriteria?: SessionCriterionAssessment[];
+    contractSteps?: ContractStepAssessment[];
+    rationaleSummary?: string;
+    recommendedNextAction?: string;
   };
   assessedAt: string;
 }

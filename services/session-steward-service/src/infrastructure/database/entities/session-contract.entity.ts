@@ -16,6 +16,18 @@ export class SessionContractEntity {
   @Column({ type: 'text' })
   name!: string;
 
+  @Column({ type: 'text', default: '' })
+  description?: string;
+
+  @Column({ name: 'objective_id', type: 'text', nullable: true })
+  objectiveId?: string | null;
+
+  @Column({ name: 'objective_type', type: 'text', nullable: true })
+  objectiveType?: string | null;
+
+  @Column({ name: 'template_id', type: 'uuid', nullable: true })
+  templateId?: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

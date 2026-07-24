@@ -33,6 +33,10 @@ export const toContractRecord = (entity: SessionContractEntity): SessionContract
   sessionId: entity.sessionId,
   version: entity.version,
   name: entity.name,
+  description: entity.description ?? '',
+  objectiveId: entity.objectiveId ?? undefined,
+  objectiveType: entity.objectiveType ?? undefined,
+  templateId: entity.templateId ?? undefined,
   createdAt: entity.createdAt.toISOString(),
 });
 
@@ -42,7 +46,13 @@ export const toStepRecord = (entity: SessionContractStepEntity): SessionContract
   stepOrder: entity.stepOrder,
   stepKey: entity.stepKey,
   title: entity.title,
+  description: entity.description ?? '',
   expectedEventType: entity.expectedEventType,
+  expectedEvidenceKinds:
+    (entity.expectedEvidenceKinds ?? []) as SessionContractStepRecord['expectedEvidenceKinds'],
+  freshnessRequirementSeconds: entity.freshnessRequirementSeconds ?? undefined,
+  successCriterionKey: entity.successCriterionKey ?? undefined,
+  operatorRationale: entity.operatorRationale ?? undefined,
   maxWaitSeconds: entity.maxWaitSeconds ?? undefined,
   required: entity.required,
   successRule: entity.successRule,
@@ -81,9 +91,16 @@ export const toEventRecord = (entity: SessionEventEntity): SessionEventRecord =>
 export const toEvidenceRecord = (entity: SessionEvidenceEntity): SessionEvidenceRecord => ({
   id: entity.id,
   sessionId: entity.sessionId,
+  tenantId: entity.tenantId,
   evidenceType: entity.evidenceType,
+  evidenceKind: entity.evidenceKind as SessionEvidenceRecord['evidenceKind'],
+  sourceService: entity.sourceService as SessionEvidenceRecord['sourceService'],
   sourceEventId: entity.sourceEventId ?? undefined,
+  sourceRef: entity.sourceRef ?? undefined,
+  metricSet: entity.metricSet as SessionEvidenceRecord['metricSet'],
+  artifact: entity.artifact as SessionEvidenceRecord['artifact'],
   freshnessExpiresAt: entity.freshnessExpiresAt?.toISOString(),
+  recordedAt: entity.recordedAt.toISOString(),
   value: entity.value,
   createdAt: entity.createdAt.toISOString(),
 });

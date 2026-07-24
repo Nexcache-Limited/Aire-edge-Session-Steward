@@ -1,0 +1,49 @@
+.apiStatus {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -8px 0 18px;
+  color: #686a61;
+  font: 8px var(--font-geist-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.apiStatus i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #aaa;
+}
+
+.connected i {
+  background: #2f9a62;
+}
+
+.unavailable i {
+  background: #e9a92a;
+}
+
+.apply {
+  width: 100%;
+  margin-top: 14px;
+  border: 0;
+  background: #171814;
+  color: #d8ff43;
+  padding: 11px;
+  font: 9px var(--font-geist-mono);
+  cursor: pointer;
+}
+
+.apply:disabled {
+  opacity: 0.45;
+}
+
+.message {
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid #babbb2;
+  background: #faf9f4;
+  font-size: 9px;
+  line-height: 1.45;
+}

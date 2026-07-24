@@ -15,6 +15,7 @@ import { TelemetryEventNormalizer } from '../infrastructure/ingest/telemetry-eve
 import { SessionAssessmentService } from './session-assessment.service';
 import { SessionCorrelationService } from './session-correlation.service';
 import { SessionEvaluationService } from './session-evaluation.service';
+import { SessionEvidenceMapperService } from './session-evidence-mapper.service';
 import { SessionEventsService } from './session-events.service';
 import { SessionsQueryService } from './sessions-query.service';
 
@@ -174,13 +175,20 @@ function createHarness(): Harness {
     interventions.repository,
     assessmentService,
   );
-  const events = new SessionEventsService(eventStore.repository, correlation, evaluation);
+  const evidenceMapper = new SessionEvidenceMapperService(evidence.repository);
+  const events = new SessionEventsService(
+    eventStore.repository,
+    correlation,
+    evidenceMapper,
+    evaluation,
+  );
   const queries = new SessionsQueryService(
     session.repository,
     contracts.repository,
     steps.repository,
     eventStore.repository,
     assessments.repository,
+    evidence.repository,
   );
 
   return {

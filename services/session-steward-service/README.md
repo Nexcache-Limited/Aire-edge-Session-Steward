@@ -10,7 +10,7 @@
 
 ## Live ingest configuration
 
-Set `NATS_ENABLED=true` to start the Sprint 2 listeners.
+Set `NATS_ENABLED=true` to start the live listeners.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -19,6 +19,8 @@ Set `NATS_ENABLED=true` to start the Sprint 2 listeners.
 | `NATS_URL` | `nats://localhost:4222` | NATS server |
 | `NATS_DEPLOYMENT_SUBJECT` | `aire.deployment.events` | Deployment events |
 | `NATS_TELEMETRY_SUBJECT` | `aire.telemetry.events` | Telemetry events |
+| `NATS_QOE_SUBJECT` | `aire.*.qoe.>` | QoE scores and validation lifecycle events |
+| `NATS_EVIDENCE_SUBJECT` | `aire.*.evidence.>` | Evidence artifacts, citations, and notes |
 
 Read APIs require an `x-tenant-id` header:
 
@@ -26,6 +28,26 @@ Read APIs require an `x-tenant-id` header:
 - `GET /sessions/:id`
 - `GET /sessions/:id/timeline`
 - `GET /sessions/:id/assessments?limit=25`
+- `GET /sessions/:id/evidence`
+
+Contract-aware operator APIs:
+
+- `GET /contract-templates`
+- `POST /contract-templates`
+- `GET /contract-templates/:id`
+- `POST /sessions/:id/contract`
+
+Assigning with `replaceExisting: true` creates a new immutable contract version for
+the run. Template definitions remain reusable and unchanged.
+
+The detail response includes an `evidenceSummary` with baseline, post-change validation,
+comparison, and recommendation presence plus the latest QoE, packet-loss, and delta values.
+It also includes deterministic `progression`, step-level contract status, an operator
+rationale summary, and one recommended next action.
+
+The expected evidence-service lifecycle envelope is codified in
+`schemas/evidence-lifecycle-event.schema.json`; fixtures keep end-to-end development
+unblocked until the upstream publisher is live.
 
 ## Structure
 

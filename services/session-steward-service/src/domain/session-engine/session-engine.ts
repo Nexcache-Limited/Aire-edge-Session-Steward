@@ -1,6 +1,7 @@
 import type {
   SessionAssessmentDraft,
   SessionAssessmentSignal,
+  ContractStepAssessment,
   SessionContractRecord,
   SessionContractStepRecord,
   SessionCriterionAssessment,
@@ -98,6 +99,17 @@ function observedMetric(
 ): { evidence?: SessionEvidenceRecord; value?: number } {
   for (let index = evidence.length - 1; index >= 0; index -= 1) {
     const item = evidence[index];
+    const metricSet = item.metricSet as Record<string, unknown> | undefined;
+    const metricAliases: Record<string, string[]> = {
+      qoe_score: ['qoeScore'],
+      packet_loss_pct: ['packetLossPct'],
+      qoe_improvement_pct: ['comparisonDeltaPct'],
+      bandwidth_tiers: ['bandwidthTiers'],
+    };
+    const metricValue = [criterion.metricName, ...(metricAliases[criterion.metricName] ?? [])]
+      .map((key) => metricSet?.[key])
+      .find((value) => typeof value === 'number');
+    if (typeof metricValue === 'number') return { evidence: item, value: metricValue };
     const namedValue = item.value[criterion.metricName];
     if (typeof namedValue === 'number') return { evidence: item, value: namedValue };
 
@@ -107,6 +119,89 @@ function observedMetric(
     }
   }
   return {};
+}
+
+const objectiveKinds = new Set([
+  'baseline_qoe',
+  'post_change_qoe',
+  'qoe_comparison',
+  'promotion_recommendation',
+]);
+
+function isObjectiveEvidence(item: SessionEvidenceRecord): boolean {
+  return (
+    (item.evidenceKind !== undefined && objectiveKinds.has(item.evidenceKind)) ||
+    item.sourceService === 'qoe-service' ||
+    item.evidenceType.includes('qoe')
+  );
+}
+
+function evidenceTimestamp(item: SessionEvidenceRecord): number {
+  return timestamp(item.recordedAt ?? item.createdAt, 'evidence.recordedAt');
+}
+
+interface ObjectiveEvidenceFacts {
+  baseline: SessionEvidenceRecord[];
+  postChange: SessionEvidenceRecord[];
+  comparison?: SessionEvidenceRecord;
+  recommendation?: SessionEvidenceRecord;
+  recommendationJustified: boolean;
+  bandwidthTierCount: number;
+  maxPacketLossPct?: number;
+  qoeDeltaPct?: number;
+}
+
+function metric(item: SessionEvidenceRecord, key: string, legacyKey: string): number | undefined {
+  const metricValue = (item.metricSet as Record<string, unknown> | undefined)?.[key];
+  if (typeof metricValue === 'number') return metricValue;
+  const value = item.value[legacyKey] ?? item.value[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function objectiveFacts(evidence: SessionEvidenceRecord[]): ObjectiveEvidenceFacts {
+  const baseline = evidence.filter((item) => item.evidenceKind === 'baseline_qoe');
+  const postChange = evidence.filter((item) => item.evidenceKind === 'post_change_qoe');
+  const comparison = [...evidence]
+    .reverse()
+    .find((item) => item.evidenceKind === 'qoe_comparison');
+  const recommendation = [...evidence]
+    .reverse()
+    .find((item) => item.evidenceKind === 'promotion_recommendation');
+  const tiers = new Set(
+    postChange
+      .map((item) => item.metricSet?.bandwidthTier)
+      .filter((tier): tier is 'low' | 'medium' | 'high' => tier !== undefined),
+  );
+  const explicitTierCount = postChange.reduce(
+    (largest, item) => Math.max(largest, item.metricSet?.bandwidthTiers ?? 0),
+    0,
+  );
+  const packetLossValues = postChange
+    .map((item) => metric(item, 'packetLossPct', 'packet_loss_pct'))
+    .filter((value): value is number => value !== undefined);
+  const comparisonDelta = comparison
+    ? metric(comparison, 'comparisonDeltaPct', 'qoe_improvement_pct')
+    : undefined;
+  const baselineScore = baseline.at(-1)
+    ? metric(baseline.at(-1)!, 'qoeScore', 'qoe_score')
+    : undefined;
+  const postScore = postChange.at(-1)
+    ? metric(postChange.at(-1)!, 'qoeScore', 'qoe_score')
+    : undefined;
+  const derivedDelta =
+    baselineScore !== undefined && postScore !== undefined && baselineScore !== 0
+      ? ((postScore - baselineScore) / baselineScore) * 100
+      : undefined;
+  return {
+    baseline,
+    postChange,
+    comparison,
+    recommendation,
+    recommendationJustified: Boolean(recommendation && baseline.length && postChange.length && comparison),
+    bandwidthTierCount: Math.max(tiers.size, explicitTierCount),
+    maxPacketLossPct: packetLossValues.length ? Math.max(...packetLossValues) : undefined,
+    qoeDeltaPct: comparisonDelta ?? derivedDelta,
+  };
 }
 
 export class SessionEngine {
@@ -142,8 +237,7 @@ export class SessionEngine {
       .filter((item) => item.sessionId === input.session.id)
       .sort(
         (left, right) =>
-          timestamp(left.createdAt, 'evidence.createdAt') -
-          timestamp(right.createdAt, 'evidence.createdAt'),
+          evidenceTimestamp(left) - evidenceTimestamp(right),
       );
 
     const completions = this.resolveCompletions(steps, events);
@@ -177,9 +271,10 @@ export class SessionEngine {
     const repeatedNonProgressCount = Math.max(0, ...eventTypeCounts.values());
 
     const latestChangeAtMs = this.latestObjectiveChange(events);
-    const latestEvidence = evidence.at(-1);
+    const objectiveEvidence = evidence.filter(isObjectiveEvidence);
+    const latestEvidence = objectiveEvidence.at(-1);
     const evidenceAgeSeconds = latestEvidence
-      ? elapsedSeconds(timestamp(latestEvidence.createdAt, 'evidence.createdAt'), assessedAtMs)
+      ? elapsedSeconds(evidenceTimestamp(latestEvidence), assessedAtMs)
       : elapsedSeconds(waitStartedAtMs, assessedAtMs);
     const evidenceExpired = Boolean(
       latestEvidence?.freshnessExpiresAt &&
@@ -188,7 +283,7 @@ export class SessionEngine {
     const evidencePredatesChange = Boolean(
       latestEvidence &&
       latestChangeAtMs &&
-      timestamp(latestEvidence.createdAt, 'evidence.createdAt') < latestChangeAtMs,
+      evidenceTimestamp(latestEvidence) < latestChangeAtMs,
     );
     const evidenceStale =
       !latestEvidence ||
@@ -196,12 +291,8 @@ export class SessionEngine {
       evidencePredatesChange ||
       evidenceAgeSeconds > this.config.evidenceStaleAfterSeconds;
 
-    const criterionEvidence = latestChangeAtMs
-      ? evidence.filter(
-          (item) => timestamp(item.createdAt, 'evidence.createdAt') >= latestChangeAtMs,
-        )
-      : evidence;
-    const criterionAssessments = this.evaluateCriteria(input.successCriteria, criterionEvidence);
+    const facts = objectiveFacts(evidence);
+    const criterionAssessments = this.evaluateCriteria(input.successCriteria, evidence, facts);
     const allCriteriaMet =
       criterionAssessments.length === 0 ||
       criterionAssessments.every((criterion) => criterion.status === 'met');
@@ -220,14 +311,20 @@ export class SessionEngine {
     if (evidenceStale && (overdue || repeatedNonProgressCount > 0)) confidence -= 15;
     confidence -=
       criterionAssessments.filter((criterion) => criterion.status === 'not_met').length * 20;
+    if (facts.recommendation && !facts.recommendationJustified) confidence -= 25;
     confidence = clamp(confidence);
 
     let state: SessionState;
-    if (allRequiredComplete && allCriteriaMet) {
+    const recommendationUnjustified = Boolean(
+      facts.recommendation && !facts.recommendationJustified,
+    );
+    if (allRequiredComplete && allCriteriaMet && !recommendationUnjustified) {
       state = 'completed';
       confidence = Math.max(confidence, 95);
     } else if (allRequiredComplete && anyCriteriaNotMet) {
       state = 'failed';
+    } else if (allRequiredComplete && recommendationUnjustified) {
+      state = 'attention_needed';
     } else if (recoveredFromOverdueStep && recentProgress) {
       state = 'recovered';
       confidence = Math.max(confidence, 82);
@@ -256,7 +353,25 @@ export class SessionEngine {
       repeatedNonProgressCount,
       criterionAssessments,
       recoveredFromOverdueStep,
+      facts,
     });
+    const contractSteps = this.evaluateContractSteps(
+      steps,
+      completedStepIds,
+      evidence,
+      criterionAssessments,
+      expectedStep,
+      state,
+      assessedAtMs,
+    );
+    const rationaleSummary = this.rationaleSummary(state, expectedStep, facts);
+    const recommendedNextAction =
+      state === 'completed'
+        ? 'Approve the contracted promotion decision and retain the defined guardrails.'
+        : expectedStep?.operatorRationale ??
+          (expectedStep
+            ? `Complete ${expectedStep.title} and attach fresh objective evidence.`
+            : 'Review the failed contract criteria before continuing.');
 
     return {
       sessionId: input.session.id,
@@ -269,9 +384,104 @@ export class SessionEngine {
         staleEvidenceAgeSeconds: evidenceStale ? evidenceAgeSeconds : undefined,
         repeatedNonProgressCount,
         successCriteria: criterionAssessments,
+        contractSteps,
+        rationaleSummary,
+        recommendedNextAction,
       },
       assessedAt,
     };
+  }
+
+  private evaluateContractSteps(
+    steps: SessionContractStepRecord[],
+    completedStepIds: Set<string>,
+    evidence: SessionEvidenceRecord[],
+    criteria: SessionCriterionAssessment[],
+    expectedStep: SessionContractStepRecord | undefined,
+    state: SessionState,
+    assessedAtMs: number,
+  ): ContractStepAssessment[] {
+    return steps.map((step) => {
+      const linkedCriterion = step.successCriterionKey
+        ? criteria.find((criterion) => criterion.criterionKey === step.successCriterionKey)
+        : undefined;
+      const matchingEvidence = evidence.filter((item) =>
+        step.expectedEvidenceKinds?.includes(item.evidenceKind!),
+      );
+      const relevantEvidence = step.expectedEvidenceKinds?.length
+        ? matchingEvidence.filter((item) => item.evidenceKind !== undefined)
+        : [];
+      const latest = relevantEvidence.at(-1);
+      const stale = Boolean(
+        latest &&
+          (latest.freshnessExpiresAt
+            ? timestamp(latest.freshnessExpiresAt, 'evidence.freshnessExpiresAt') < assessedAtMs
+            : step.freshnessRequirementSeconds !== undefined &&
+              elapsedSeconds(evidenceTimestamp(latest), assessedAtMs) >
+                step.freshnessRequirementSeconds),
+      );
+      const failed =
+        linkedCriterion?.status === 'not_met' ||
+        (step.expectedEventType === 'qoe.validation.completed' &&
+          state === 'failed');
+      let status: ContractStepAssessment['status'] = 'pending';
+      if (failed) status = 'failed';
+      else if (stale) status = 'stale';
+      else if (
+        completedStepIds.has(step.id) &&
+        (!step.expectedEvidenceKinds?.length || relevantEvidence.length > 0) &&
+        linkedCriterion?.status !== 'pending'
+      ) {
+        status = 'satisfied';
+      } else if (
+        expectedStep?.id === step.id &&
+        (state === 'attention_needed' || state === 'intervention_required')
+      ) {
+        status = 'attention_needed';
+      }
+      const explanation =
+        status === 'satisfied'
+          ? 'Required event and evidence are current.'
+          : status === 'stale'
+            ? 'Evidence exists but no longer meets the freshness requirement.'
+            : status === 'failed'
+              ? 'The linked contract rule did not pass.'
+              : status === 'attention_needed'
+                ? step.operatorRationale ?? 'This expected step is overdue.'
+                : 'Waiting for the contracted event and evidence.';
+      return {
+        stepKey: step.stepKey,
+        title: step.title,
+        status,
+        evidenceIds: relevantEvidence.map((item) => item.id),
+        explanation,
+      };
+    });
+  }
+
+  private rationaleSummary(
+    state: SessionState,
+    expectedStep: SessionContractStepRecord | undefined,
+    facts: ObjectiveEvidenceFacts,
+  ): string {
+    if (state === 'completed') {
+      return 'The full evidence chain is current and every contracted success rule passed.';
+    }
+    if (state === 'recovered') {
+      return 'Fresh objective evidence restored progress after a previously overdue step.';
+    }
+    if (state === 'intervention_required') {
+      return `Infrastructure activity continued, but ${expectedStep?.title ?? 'the required objective step'} did not advance.`;
+    }
+    if (state === 'attention_needed') {
+      return `${expectedStep?.title ?? 'The next contract step'} is at risk and requires fresh evidence.`;
+    }
+    if (state === 'failed') {
+      return 'Objective evidence is present, but one or more contracted guardrails failed.';
+    }
+    return facts.baseline.length
+      ? `The session is progressing toward ${expectedStep?.title ?? 'contract completion'}.`
+      : 'The session is waiting for its first contracted objective evidence.';
   }
 
   private resolveCompletions(
@@ -316,9 +526,19 @@ export class SessionEngine {
   private evaluateCriteria(
     criteria: SessionSuccessCriterionRecord[],
     evidence: SessionEvidenceRecord[],
+    facts: ObjectiveEvidenceFacts,
   ): SessionCriterionAssessment[] {
     return criteria.map((criterion) => {
-      const observed = observedMetric(criterion, evidence);
+      let observed = observedMetric(criterion, evidence);
+      if (criterion.criterionKey === 'qoe_improvement' && facts.baseline.length > 0 && facts.postChange.length > 0) {
+        observed = { value: facts.qoeDeltaPct };
+      } else if (criterion.criterionKey === 'packet_loss_guardrail' && facts.postChange.length > 0) {
+        observed = { value: facts.maxPacketLossPct };
+      } else if (criterion.criterionKey === 'bandwidth_tier_coverage' && facts.postChange.length > 0) {
+        observed = { value: facts.bandwidthTierCount };
+      } else if (criterion.criterionKey === 'recommendation_justified') {
+        observed = facts.recommendation ? { value: facts.recommendationJustified ? 1 : 0 } : {};
+      }
       if (observed.value === undefined || criterion.thresholdValue === undefined) {
         return {
           criterionKey: criterion.criterionKey,
@@ -363,6 +583,7 @@ export class SessionEngine {
     repeatedNonProgressCount: number;
     criterionAssessments: SessionCriterionAssessment[];
     recoveredFromOverdueStep: boolean;
+    facts: ObjectiveEvidenceFacts;
   }): SessionAssessmentSignal[] {
     const signals: SessionAssessmentSignal[] = [];
 
@@ -387,6 +608,19 @@ export class SessionEngine {
         message: `Objective evidence is ${input.evidenceAgeSeconds} seconds old`,
         evidenceIds: input.latestEvidence ? [input.latestEvidence.id] : undefined,
       });
+      signals.push({
+        code: 'objective_evidence_stale',
+        severity: input.overdue ? 'critical' : 'warning',
+        message: `Objective evidence is ${input.evidenceAgeSeconds} seconds old`,
+        evidenceIds: input.latestEvidence ? [input.latestEvidence.id] : undefined,
+      });
+    } else if (input.latestEvidence) {
+      signals.push({
+        code: 'objective_evidence_fresh',
+        severity: 'info',
+        message: 'Objective evidence is current',
+        evidenceIds: [input.latestEvidence.id],
+      });
     }
     if (input.overdue && input.expectedStep) {
       signals.push({
@@ -407,6 +641,70 @@ export class SessionEngine {
         code: 'recovery_detected',
         severity: 'info',
         message: 'A previously overdue contract step has now completed',
+      });
+    }
+
+    if (input.facts.baseline.length > 0) {
+      signals.push({
+        code: 'baseline_present',
+        severity: 'info',
+        message: 'Baseline QoE evidence is available',
+        evidenceIds: input.facts.baseline.map((item) => item.id),
+      });
+    }
+    if (
+      input.expectedStep?.expectedEventType === 'qoe.validation.completed' &&
+      input.facts.postChange.length === 0
+    ) {
+      signals.push({
+        code: 'post_change_validation_missing',
+        severity: input.overdue ? 'critical' : 'warning',
+        message: 'Healthy infrastructure has not been followed by post-change QoE validation',
+      });
+    }
+    if (input.facts.postChange.length > 0 && !input.facts.comparison) {
+      signals.push({
+        code: 'comparison_missing',
+        severity: 'warning',
+        message: 'Post-change QoE exists, but no baseline comparison is available',
+      });
+    }
+    const packetLoss = input.criterionAssessments.find(
+      (criterion) => criterion.criterionKey === 'packet_loss_guardrail',
+    );
+    if (packetLoss?.status === 'not_met') {
+      signals.push({
+        code: 'packet_loss_threshold_exceeded',
+        severity: 'critical',
+        message: 'Post-change packet loss exceeds the contract guardrail',
+      });
+    }
+    const tierCoverage = input.criterionAssessments.find(
+      (criterion) => criterion.criterionKey === 'bandwidth_tier_coverage',
+    );
+    if (tierCoverage && tierCoverage.status !== 'met') {
+      signals.push({
+        code: 'all_bandwidth_tiers_not_covered',
+        severity: 'warning',
+        message: 'Validation does not yet cover every required bandwidth tier',
+      });
+    }
+    const improvement = input.criterionAssessments.find(
+      (criterion) => criterion.criterionKey === 'qoe_improvement',
+    );
+    if (improvement?.status === 'met') {
+      signals.push({
+        code: 'qoe_improved',
+        severity: 'info',
+        message: 'Post-change QoE is better than the baseline',
+      });
+    }
+    if (input.facts.recommendation && !input.facts.recommendationJustified) {
+      signals.push({
+        code: 'recommendation_not_justified',
+        severity: 'critical',
+        message: 'The recommendation is missing baseline, rerun, or comparison evidence',
+        evidenceIds: [input.facts.recommendation.id],
       });
     }
 
