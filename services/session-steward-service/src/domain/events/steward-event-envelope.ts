@@ -1,4 +1,8 @@
-export type StewardSourceService = 'deployment-service' | 'telemetry-service';
+export type StewardSourceService =
+  | 'deployment-service'
+  | 'telemetry-service'
+  | 'qoe-service'
+  | 'evidence-service';
 
 export interface StewardEventEnvelope {
   eventId: string;

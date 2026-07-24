@@ -61,3 +61,22 @@ test("keeps the session engine and intelligence layer separate", async () => {
   await access(new URL("../public/og.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
+
+test("keeps the authenticated operator workflow isolated from the competition replay", async () => {
+  const [operatorPage, workspace, publicPage] = await Promise.all([
+    readFile(new URL("../app/operator/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/operator/workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(operatorPage, /requireChatGPTUser\("\/operator"\)/);
+  assert.match(workspace, /New template/);
+  assert.match(workspace, /Replace template for this run only/);
+  assert.match(workspace, /\/api\/steward\/templates/);
+  assert.match(workspace, /Apply contract to session/);
+  assert.match(workspace, /Persisted staging data/);
+  assert.match(workspace, /attention_needed/);
+  assert.match(workspace, /intervention_required/);
+  assert.match(workspace, /Recovered/);
+  assert.match(workspace, /RECOMMENDED NEXT ACTION/);
+  assert.doesNotMatch(publicPage, /OperatorWorkspace|New template/);
+});

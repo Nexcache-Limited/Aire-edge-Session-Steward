@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   SessionAssessmentEntity,
   SessionContractEntity,
+  SessionContractTemplateEntity,
   SessionContractStepEntity,
   SessionEntity,
   SessionEventEntity,
@@ -16,6 +17,7 @@ import {
 const entities = [
   SessionEntity,
   SessionContractEntity,
+  SessionContractTemplateEntity,
   SessionContractStepEntity,
   SessionSuccessCriterionEntity,
   SessionEventEntity,

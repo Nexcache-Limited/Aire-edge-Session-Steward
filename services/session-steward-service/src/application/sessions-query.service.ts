@@ -8,6 +8,7 @@ import {
   SessionContractStepEntity,
   SessionEntity,
   SessionEventEntity,
+  SessionEvidenceEntity,
 } from '../infrastructure/database/entities';
 
 const assessmentView = (assessment: SessionAssessmentEntity | null) =>
@@ -40,6 +41,44 @@ const timelinePayload = (payload: Record<string, unknown>): Record<string, unkno
     }),
   );
 
+const evidenceView = (evidence: SessionEvidenceEntity) => ({
+  id: evidence.id,
+  kind: evidence.evidenceKind,
+  sourceService: evidence.sourceService,
+  sourceEventId: evidence.sourceEventId,
+  sourceRef: evidence.sourceRef,
+  metricSet: evidence.metricSet,
+  artifact: evidence.artifact,
+  freshnessExpiresAt: evidence.freshnessExpiresAt?.toISOString() ?? null,
+  recordedAt: evidence.recordedAt.toISOString(),
+  createdAt: evidence.createdAt.toISOString(),
+});
+
+const evidenceSummary = (evidence: SessionEvidenceEntity[]) => {
+  const present = (kind: string) => evidence.some((item) => item.evidenceKind === kind);
+  const latestMetrics = [...evidence]
+    .reverse()
+    .find((item) => item.evidenceKind === 'post_change_qoe')?.metricSet;
+  const comparisonMetrics = [...evidence]
+    .reverse()
+    .find((item) => item.evidenceKind === 'qoe_comparison')?.metricSet;
+  return {
+    baselinePresent: present('baseline_qoe'),
+    postChangeValidationPresent: present('post_change_qoe'),
+    comparisonPresent: present('qoe_comparison'),
+    recommendationPresent: present('promotion_recommendation'),
+    latestQoeScore: latestMetrics?.qoeScore ?? null,
+    latestPacketLossPct: latestMetrics?.packetLossPct ?? null,
+    comparisonDeltaPct: comparisonMetrics?.comparisonDeltaPct ?? null,
+  };
+};
+
+const operatorProgressionState = (state: string | undefined) => {
+  if (state === 'legitimate_wait') return 'progressing';
+  if (state === 'failed') return 'intervention_required';
+  return state ?? 'progressing';
+};
+
 @Injectable()
 export class SessionsQueryService {
   constructor(
@@ -53,6 +92,8 @@ export class SessionsQueryService {
     private readonly events: Repository<SessionEventEntity>,
     @InjectRepository(SessionAssessmentEntity)
     private readonly assessments: Repository<SessionAssessmentEntity>,
+    @InjectRepository(SessionEvidenceEntity)
+    private readonly evidence: Repository<SessionEvidenceEntity>,
   ) {}
 
   async listActive(tenantId: string) {
@@ -85,7 +126,7 @@ export class SessionsQueryService {
           where: { sessionId },
           order: { version: 'DESC' },
         });
-    const [steps, lastAssessment] = await Promise.all([
+    const [steps, lastAssessment, evidence] = await Promise.all([
       contract
         ? this.steps.find({ where: { contractId: contract.id }, order: { stepOrder: 'ASC' } })
         : Promise.resolve([]),
@@ -93,6 +134,7 @@ export class SessionsQueryService {
         where: { sessionId },
         order: { assessedAt: 'DESC' },
       }),
+      this.evidence.find({ where: { sessionId, tenantId }, order: { recordedAt: 'ASC' } }),
     ]);
 
     return {
@@ -107,18 +149,60 @@ export class SessionsQueryService {
         ? {
             id: contract.id,
             name: contract.name,
+            description: contract.description ?? '',
             version: contract.version,
+            templateId: contract.templateId ?? null,
+            objectiveId: contract.objectiveId ?? null,
+            objectiveType: contract.objectiveType ?? null,
             steps: steps.map((step) => ({
               key: step.stepKey,
               title: step.title,
+              description: step.description ?? '',
               order: step.stepOrder,
               expectedEventType: step.expectedEventType,
+              expectedEvidenceKinds: step.expectedEvidenceKinds ?? [],
+              freshnessRequirementSeconds: step.freshnessRequirementSeconds,
+              successCriterionKey: step.successCriterionKey,
+              operatorRationale: step.operatorRationale,
               maxWaitSeconds: step.maxWaitSeconds,
               required: step.required,
+              status:
+                lastAssessment?.rationale.contractSteps?.find(
+                  (assessment) => assessment.stepKey === step.stepKey,
+                ) ?? null,
             })),
           }
         : null,
       lastAssessment: assessmentView(lastAssessment),
+      progression: {
+        state: operatorProgressionState(lastAssessment?.state),
+        rationaleSummary:
+          lastAssessment?.rationale.rationaleSummary ?? 'Waiting for the first assessment.',
+        recommendedNextAction:
+          lastAssessment?.rationale.recommendedNextAction ??
+          'Collect the first contracted objective evidence.',
+        completionPercent: Number(lastAssessment?.completionPercent ?? 0),
+        expectedStepKey: lastAssessment?.expectedStepKey ?? null,
+      },
+      evidenceSummary: {
+        ...evidenceSummary(evidence),
+        satisfiedContractSteps:
+          lastAssessment?.rationale.contractSteps?.filter((step) => step.status === 'satisfied')
+            .length ?? 0,
+        totalContractSteps: steps.length,
+      },
+    };
+  }
+
+  async evidenceList(tenantId: string, sessionId: string) {
+    await this.requireSession(tenantId, sessionId);
+    const evidence = await this.evidence.find({
+      where: { sessionId, tenantId },
+      order: { recordedAt: 'ASC' },
+    });
+    return {
+      summary: evidenceSummary(evidence),
+      records: evidence.map(evidenceView),
     };
   }
 

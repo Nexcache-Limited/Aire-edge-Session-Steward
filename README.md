@@ -164,7 +164,27 @@ npm run build
 
 ### Deployment notes
 
-The public demo is deployed on Vercel using the Next.js preset with `next build`. The repository also retains its Vinext/Cloudflare build path for Sites-compatible deployment.
+The competition demo and active development are deliberately separated:
+
+- `steward.nexcache.com` tracks the frozen `competition-demo` branch.
+- `live-steward.nexcache.com` tracks `main` for staging validation.
+
+The authenticated `/operator` workspace reads and writes contract templates
+through server-side proxy routes. Configure the staging web project with:
+
+| Variable | Purpose |
+| --- | --- |
+| `SESSION_STEWARD_API_URL` | Base URL of the deployed NestJS service |
+| `SESSION_STEWARD_TENANT_ID` | Tenant used for operator API requests |
+| `STEWARD_DEMO_SESSION_ID` | Persisted Essex-style session shown in the operator workflow |
+
+The API proxy derives the operator identity from the authenticated request and
+does not expose tenant or operator headers to the browser.
+
+The NestJS service applies its TypeORM migrations automatically at startup.
+Its deployment requires `DATABASE_URL`; live NATS ingest additionally requires
+the variables listed in
+[`services/session-steward-service/README.md`](services/session-steward-service/README.md).
 
 ---
 

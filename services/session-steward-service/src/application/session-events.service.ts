@@ -5,6 +5,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 import type { StewardEventEnvelope } from '../domain/events/steward-event-envelope';
 import { SessionEventEntity } from '../infrastructure/database/entities';
 import { SessionCorrelationService } from './session-correlation.service';
+import { SessionEvidenceMapperService } from './session-evidence-mapper.service';
 import { SessionEvaluationService } from './session-evaluation.service';
 
 export interface IngestedStewardEvent {
@@ -31,6 +32,7 @@ export class SessionEventsService {
     @InjectRepository(SessionEventEntity)
     private readonly events: Repository<SessionEventEntity>,
     private readonly correlation: SessionCorrelationService,
+    private readonly evidenceMapper: SessionEvidenceMapperService,
     private readonly evaluation: SessionEvaluationService,
   ) {}
 
@@ -86,6 +88,7 @@ export class SessionEventsService {
 
     if (!session) return { event, matched: false, duplicate: false };
 
+    await this.evidenceMapper.extract(event);
     const assessment = await this.evaluation.evaluate(session.id, envelope.occurredAt);
     return {
       event,

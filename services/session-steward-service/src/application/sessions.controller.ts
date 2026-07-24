@@ -38,6 +38,11 @@ export class SessionsController {
     return this.queries.assessmentHistory(this.requireTenant(tenantId), id, limit);
   }
 
+  @Get(':id/evidence')
+  evidence(@Headers('x-tenant-id') tenantId: string | undefined, @Param('id') id: string) {
+    return this.queries.evidenceList(this.requireTenant(tenantId), id);
+  }
+
   private requireTenant(tenantId?: string): string {
     if (!tenantId) throw new BadRequestException('x-tenant-id header is required');
     return tenantId;
