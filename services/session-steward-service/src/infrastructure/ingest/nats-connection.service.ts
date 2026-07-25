@@ -19,13 +19,25 @@ export class NatsConnectionService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const servers = this.config.get<string>('NATS_URL', 'nats://localhost:4222');
+    const servers = this.config.get<string>('NATS_URL');
+    if (!servers && this.config.get<string>('NODE_ENV') === 'production') {
+      throw new Error('NATS_URL is required when NATS_ENABLED=true in production.');
+    }
+    const resolvedServers = servers ?? 'nats://localhost:4222';
     try {
-      this.client = await connect({ servers });
-      this.logger.log(`Connected to NATS at ${servers}`);
+      this.client = await connect({ servers: resolvedServers });
+      this.logger.log(`Connected to NATS at ${resolvedServers}`);
     } catch (error) {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new Error(
+          `NATS connection failed at ${resolvedServers}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        );
+      }
       this.logger.warn(
-        `NATS unavailable at ${servers}; read APIs remain available. ${
+        `NATS unavailable at ${resolvedServers}; read APIs remain available. ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

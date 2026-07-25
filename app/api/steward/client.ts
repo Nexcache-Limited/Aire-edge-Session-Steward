@@ -1,20 +1,29 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
-
-const DEFAULT_TENANT_ID = "10000000-0000-4000-8000-000000000001";
+import { getOperatorUser } from "../../chatgpt-auth";
 
 export async function forwardToSteward(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const user = await getChatGPTUser();
+  const user = await getOperatorUser();
   if (!user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
   }
 
   const baseUrl = process.env.SESSION_STEWARD_API_URL?.replace(/\/$/, "");
-  if (!baseUrl) {
+  const tenantId = process.env.SESSION_STEWARD_TENANT_ID;
+  const apiToken = process.env.SESSION_STEWARD_API_TOKEN;
+  if (!baseUrl || !tenantId || !apiToken) {
     return Response.json(
-      { error: "The staging Session Steward API is not configured." },
+      {
+        error:
+          "SESSION_STEWARD_API_URL, SESSION_STEWARD_TENANT_ID, and SESSION_STEWARD_API_TOKEN are required.",
+      },
+      { status: 503 },
+    );
+  }
+  if (process.env.NODE_ENV === "production" && !baseUrl.startsWith("https://")) {
+    return Response.json(
+      { error: "SESSION_STEWARD_API_URL must use HTTPS in production." },
       { status: 503 },
     );
   }
@@ -22,11 +31,9 @@ export async function forwardToSteward(
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
   headers.set("content-type", "application/json");
-  headers.set(
-    "x-tenant-id",
-    process.env.SESSION_STEWARD_TENANT_ID ?? DEFAULT_TENANT_ID,
-  );
+  headers.set("x-tenant-id", tenantId);
   headers.set("x-operator-email", user.email);
+  headers.set("authorization", `Bearer ${apiToken}`);
 
   try {
     const response = await fetch(`${baseUrl}${path}`, {

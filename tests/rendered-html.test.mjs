@@ -68,15 +68,24 @@ test("keeps the authenticated operator workflow isolated from the competition re
     readFile(new URL("../app/operator/workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(operatorPage, /requireChatGPTUser\("\/operator"\)/);
+  assert.match(operatorPage, /requireOperatorUser\("\/operator"\)/);
   assert.match(workspace, /New template/);
-  assert.match(workspace, /Replace template for this run only/);
+  assert.match(workspace, /Create a new contract version for this run/);
   assert.match(workspace, /\/api\/steward\/templates/);
+  assert.match(workspace, /\/api\/steward\/sessions\/\$\{sessionId\}/);
   assert.match(workspace, /Apply contract to session/);
   assert.match(workspace, /Persisted staging data/);
   assert.match(workspace, /attention_needed/);
   assert.match(workspace, /intervention_required/);
-  assert.match(workspace, /Recovered/);
+  assert.match(workspace, /Promotion justified/);
+  assert.match(workspace, /delivery confidence/);
+  assert.match(workspace, /qoe\.baseline\.completed/);
+  assert.match(workspace, /promotion_recommendation/);
+  assert.doesNotMatch(workspace, /const beats|Advance evidence/);
   assert.match(workspace, /RECOMMENDED NEXT ACTION/);
+  assert.match(
+    await readFile(new URL("../app/api/steward/client.ts", import.meta.url), "utf8"),
+    /SESSION_STEWARD_API_TOKEN/,
+  );
   assert.doesNotMatch(publicPage, /OperatorWorkspace|New template/);
 });

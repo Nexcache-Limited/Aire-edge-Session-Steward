@@ -196,6 +196,48 @@ async function ingestHappyEvidence(
 }
 
 describe('Sprint 3 objective evidence pipeline', () => {
+  it('normalizes a real QoEScoreEvent envelope into persisted objective evidence', async () => {
+    const harness = createHarness();
+    const qoeScoreEvent = (
+      eventId: string,
+      phase: 'baseline' | 'post_change',
+      minutes: number,
+      qoeScore: number,
+      packetLossPct: number,
+    ) => ({
+      eventId,
+      eventType: 'QoEScoreEvent',
+      tenantId: TENANT,
+      environmentId: ENVIRONMENT,
+      workflowId: WORKFLOW,
+      recordedAt: iso(minutes),
+      payload: {
+        phase,
+        metrics: {
+          qoeScore,
+          packetLossPct,
+          bandwidthTier: 'low',
+        },
+      },
+    });
+
+    await harness.events.ingest(
+      harness.qoe.normalize(qoeScoreEvent('score-baseline', 'baseline', 1, 71.4, 0.8)),
+    );
+    await ingestInfrastructure(harness);
+    await harness.events.ingest(
+      harness.qoe.normalize(qoeScoreEvent('score-rerun', 'post_change', 4, 79.2, 0.9)),
+    );
+
+    const baseline = harness.evidenceRows.find((item) => item.evidenceKind === 'baseline_qoe');
+    const postChange = harness.evidenceRows.find(
+      (item) => item.evidenceKind === 'post_change_qoe',
+    );
+    expect(baseline?.metricSet).toMatchObject({ qoeScore: 71.4, packetLossPct: 0.8 });
+    expect(postChange?.metricSet).toMatchObject({ qoeScore: 79.2, packetLossPct: 0.9 });
+    expect(harness.assessmentRows.at(-1)?.state).toBe('progressing');
+  });
+
   it('completes with high confidence when the full QoE evidence chain passes', async () => {
     const harness = createHarness();
     await ingestHappyEvidence(harness);

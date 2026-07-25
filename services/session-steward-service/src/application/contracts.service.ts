@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   ContractTemplateCriterionDefinition,
@@ -35,15 +35,8 @@ export class ContractsService {
   constructor(
     @InjectRepository(SessionContractTemplateEntity)
     private readonly templates: Repository<SessionContractTemplateEntity>,
-    @InjectRepository(SessionEntity)
-    private readonly sessions: Repository<SessionEntity>,
-    @InjectRepository(SessionContractEntity)
-    private readonly contracts: Repository<SessionContractEntity>,
-    @InjectRepository(SessionContractStepEntity)
-    private readonly steps: Repository<SessionContractStepEntity>,
-    @InjectRepository(SessionSuccessCriterionEntity)
-    private readonly criteria: Repository<SessionSuccessCriterionEntity>,
     private readonly evaluation: SessionEvaluationService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createTemplate(
@@ -77,64 +70,87 @@ export class ContractsService {
   }
 
   async assign(tenantId: string, sessionId: string, input: AssignContractInput) {
-    const session = await this.sessions.findOne({ where: { id: sessionId, tenantId } });
-    if (!session) throw new NotFoundException(`Session ${sessionId} was not found`);
-    if (session.activeContractId && !input.replaceExisting) {
-      throw new ConflictException('Session already has a contract; set replaceExisting to create a new version');
-    }
-    const template = await this.templateDetail(tenantId, input.templateId);
-    const definition = input.steps ?? template.steps;
-    this.validateDefinition({ name: input.name ?? template.name, steps: definition });
-    const previous = await this.contracts.findOne({
-      where: { sessionId },
-      order: { version: 'DESC' },
+    const assignment = await this.dataSource.transaction(async (manager) => {
+      const sessions = manager.getRepository(SessionEntity);
+      const templates = manager.getRepository(SessionContractTemplateEntity);
+      const contracts = manager.getRepository(SessionContractEntity);
+      const steps = manager.getRepository(SessionContractStepEntity);
+      const criteria = manager.getRepository(SessionSuccessCriterionEntity);
+      const session = await sessions.findOne({
+        where: { id: sessionId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!session) throw new NotFoundException(`Session ${sessionId} was not found`);
+      if (session.activeContractId && !input.replaceExisting) {
+        throw new ConflictException(
+          'Session already has a contract; set replaceExisting to create a new version',
+        );
+      }
+      const template = await templates.findOne({
+        where: { id: input.templateId, tenantId },
+      });
+      if (!template) {
+        throw new NotFoundException(`Contract template ${input.templateId} was not found`);
+      }
+      const definition = input.steps ?? template.steps;
+      this.validateDefinition({ name: input.name ?? template.name, steps: definition });
+      const previous = await contracts.findOne({
+        where: { sessionId },
+        order: { version: 'DESC' },
+      });
+      const contract = await contracts.save(
+        contracts.create({
+          sessionId,
+          version: (previous?.version ?? 0) + 1,
+          name: input.name?.trim() ?? template.name,
+          description: input.description?.trim() ?? template.description,
+          objectiveId: template.objectiveId,
+          objectiveType: template.objectiveType,
+          templateId: template.id,
+        }),
+      );
+      await steps.save(
+        definition.map((step, index) =>
+          steps.create({
+            contractId: contract.id,
+            stepOrder: index,
+            stepKey: step.key,
+            title: step.title,
+            description: step.description ?? '',
+            expectedEventType: step.expectedEventType,
+            expectedEvidenceKinds: step.expectedEvidenceKinds ?? [],
+            freshnessRequirementSeconds: step.freshnessRequirementSeconds ?? null,
+            successCriterionKey: step.successCriterionKey ?? null,
+            operatorRationale: step.operatorRationale ?? null,
+            maxWaitSeconds: step.maxWaitSeconds ?? null,
+            required: step.required ?? true,
+            successRule: step.successRule ?? {},
+          }),
+        ),
+      );
+      await criteria.save(
+        template.successCriteria.map((criterion) =>
+          criteria.create({
+            contractId: contract.id,
+            criterionKey: criterion.key,
+            metricName: criterion.metricName,
+            operator: criterion.operator,
+            thresholdValue: criterion.thresholdValue ?? null,
+            unit: criterion.unit ?? null,
+          }),
+        ),
+      );
+      session.activeContractId = contract.id;
+      await sessions.save(session);
+      return { contract, definition, templateId: template.id };
     });
-    const contract = await this.contracts.save(
-      this.contracts.create({
-        sessionId,
-        version: (previous?.version ?? 0) + 1,
-        name: input.name?.trim() ?? template.name,
-        description: input.description?.trim() ?? template.description,
-        objectiveId: template.objectiveId,
-        objectiveType: template.objectiveType,
-        templateId: template.id,
-      }),
-    );
-    await this.steps.save(
-      definition.map((step, index) =>
-        this.steps.create({
-          contractId: contract.id,
-          stepOrder: index,
-          stepKey: step.key,
-          title: step.title,
-          description: step.description ?? '',
-          expectedEventType: step.expectedEventType,
-          expectedEvidenceKinds: step.expectedEvidenceKinds ?? [],
-          freshnessRequirementSeconds: step.freshnessRequirementSeconds ?? null,
-          successCriterionKey: step.successCriterionKey ?? null,
-          operatorRationale: step.operatorRationale ?? null,
-          maxWaitSeconds: step.maxWaitSeconds ?? null,
-          required: step.required ?? true,
-          successRule: step.successRule ?? {},
-        }),
-      ),
-    );
-    await this.criteria.save(
-      template.successCriteria.map((criterion) =>
-        this.criteria.create({
-          contractId: contract.id,
-          criterionKey: criterion.key,
-          metricName: criterion.metricName,
-          operator: criterion.operator,
-          thresholdValue: criterion.thresholdValue ?? null,
-          unit: criterion.unit ?? null,
-        }),
-      ),
-    );
-    session.activeContractId = contract.id;
-    await this.sessions.save(session);
-    const assessment = await this.evaluation.evaluate(session.id, new Date().toISOString());
-    return { contract, steps: definition, sourceTemplateId: template.id, assessment };
+    const assessment = await this.evaluation.evaluate(sessionId, new Date().toISOString());
+    return {
+      contract: assignment.contract,
+      steps: assignment.definition,
+      sourceTemplateId: assignment.templateId,
+      assessment,
+    };
   }
 
   private validateDefinition(input: Pick<CreateContractTemplateInput, 'name' | 'steps'>) {
