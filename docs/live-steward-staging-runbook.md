@@ -42,7 +42,7 @@ domain and do not copy them to the frozen competition project.
 | `SESSION_STEWARD_API_URL` | Public or private HTTPS origin for the backend, with no trailing slash |
 | `SESSION_STEWARD_TENANT_ID` | UUID for the staging tenant |
 | `SESSION_STEWARD_API_TOKEN` | Random shared secret, at least 32 characters; identical to the backend value |
-| `STEWARD_DEMO_SESSION_ID` | UUID of the persisted Essex staging session |
+| `STEWARD_DEMO_SESSION_ID` | UUID of the persisted session currently being validated (Essex or AIRE-Edge training) |
 | `OPERATOR_AUTH_MODE` | `credentials` |
 | `OPERATOR_AUTH_EMAIL` | The single staging operator email |
 | `OPERATOR_AUTH_PASSWORD` | Unique strong password stored only as a Vercel secret |
@@ -79,12 +79,37 @@ Vercel build logs.
 | `NATS_TELEMETRY_SUBJECT` | `aire.telemetry.events` unless overridden |
 | `NATS_QOE_SUBJECT` | `aire.*.qoe.>` unless overridden |
 | `NATS_EVIDENCE_SUBJECT` | `aire.*.evidence.>` unless overridden |
+| `NATS_TRAINING_SUBJECT` | `aire.*.training.session.*.events`; matches the AIRE-Edge v1 training publisher |
 | `OTEL_SERVICE_NAME` | Optional; recommended value `aire-edge-session-steward-service` |
 
 Use
 [`examples/live-steward-backend.env.example`](examples/live-steward-backend.env.example)
 as a key-only reference. Treat `DATABASE_URL`, `NATS_URL`, and
 `SESSION_STEWARD_API_TOKEN` as secrets.
+
+For the first AIRE-Edge training run, AIRE-Edge must expose the generated
+`training_session_id` before it publishes `TrainingStarted`. Create the Steward
+session during that handoff:
+
+```bash
+psql "$STAGING_DATABASE_URL" \
+  -v training_session_id='<AIRE_TRAINING_SESSION_UUID>' \
+  -v tenant_id='<TRAINING_TENANT_UUID>' \
+  -f services/session-steward-service/scripts/staging/ensure-training-session.sql
+```
+
+The training UUID is the Steward session UUID. AIRE's `environment` is a
+deployment-stage code (`stg`, `pil`, and so on), so it remains event context and
+is not written to Steward's UUID `environment_id` column.
+Set the Vercel project's `STEWARD_DEMO_SESSION_ID` to that UUID, open
+`/operator`, create the AIRE-Edge training template, and assign it before the
+run when possible. Events received before assignment are retained; assigning
+the contract evaluates the persisted history.
+
+Do not start the real run unless the UUID handoff and seed can complete before
+`TrainingStarted`. Core NATS events are live-only, and an event ingested before
+the matching Steward session exists is retained as unmatched but is not
+automatically rebound after seeding.
 
 ## Exact staging deployment order
 
@@ -318,6 +343,7 @@ Subscribed to aire.deployment.events
 Subscribed to aire.telemetry.events
 Subscribed to aire.*.qoe.>
 Subscribed to aire.*.evidence.>
+Subscribed to aire.*.training.session.*.events
 ```
 
 The subscribers use live core NATS subscriptions, not durable JetStream
@@ -357,7 +383,39 @@ The acceptance test in
 `services/session-steward-service/src/application/objective-evidence.spec.ts`
 documents the currently supported camel-case `QoEScoreEvent` envelope.
 
-### 12. Capture PR evidence
+### 12. Run the first AIRE-Edge training flow
+
+Before AIRE-Edge publishes `TrainingStarted`:
+
+1. Record the AIRE-generated `training_session_id` and tenant UUID.
+2. Run `ensure-training-session.sql` with those exact UUIDs.
+3. Set `SESSION_STEWARD_TENANT_ID` and `STEWARD_DEMO_SESSION_ID` on the
+   live-steward Vercel project to those values and deploy the same source SHA.
+4. Open `/operator`, create the “AIRE-Edge training run” template, assign it,
+   and confirm the persisted contract after reload.
+5. Confirm the backend log contains the training subscription line.
+
+Then run the real training workflow and verify this sequence:
+
+| AIRE-Edge event | Normalized event | Evidence kind | Expected operator result |
+| --- | --- | --- | --- |
+| `TrainingStarted` | `training.started` | `training_context` | Progressing; checkpoint expected next |
+| `CheckpointProduced` | `training.checkpoint.produced` | `training_checkpoint` | Checkpoint progress and artifact reference visible |
+| `ValidationMetricRecorded` | `training.validation.metric.recorded` | `training_validation_metric` | Validation, confidence gate, and convergence evidence visible |
+| `TrainingCompleted` | `training.completed` | `training_completion` | `completed`, rendered as “Training complete,” with final artifact |
+| `TrainingFailed` | `training.failed` | `training_failure` | Terminal “Training failed” with one recovery action |
+
+Use a successful session to prove the first four events. Validate
+`TrainingFailed` only with a separate run/session; do not publish both terminal
+events for one training session. After each event, compare `/operator` with
+authenticated `GET /sessions/:id` and `GET /sessions/:id/evidence`.
+
+Stop if the first event is unmatched, an event ID is rejected/duplicated, the
+tenant or training UUID differs from the seeded session, the UI and API differ,
+or the final confidence/convergence evidence does not satisfy the assigned
+contract.
+
+### 13. Capture PR evidence
 
 Capture:
 
@@ -375,7 +433,12 @@ Capture:
 - Promotion justified state.
 - Final persisted `GET /sessions/:id` response, with secrets and personal data
   removed.
-- Backend logs showing the four NATS subscriptions and accepted QoE events.
+- Backend logs showing all five NATS subscriptions and accepted QoE/training
+  events.
+- Training template and contract after reload.
+- Training started, checkpoint, validation, and “Training complete” screens.
+- Redacted training session/evidence responses showing confidence,
+  convergence, and the final artifact reference.
 
 Never capture passwords, tokens, database/NATS URLs, cookies, Vercel environment
 values, or unredacted authorization headers.
@@ -395,9 +458,13 @@ values, or unredacted authorization headers.
 - [ ] Contract assignment and immutable replacement survived reload.
 - [ ] Contract progress, evidence totals, confidence, rationale, and next action
       matched persisted API data.
-- [ ] NATS connection and all four subscriptions verified.
+- [ ] NATS connection and all five subscriptions verified.
 - [ ] Current `QoEScoreEvent` baseline and post-change events persisted.
 - [ ] Essex progression reached intervention, recovery, and promotion justified.
+- [ ] AIRE-Edge training events correlated by `training_session_id`.
+- [ ] Training checkpoint, validation, convergence, and final artifact evidence
+      persisted and matched `/operator`.
+- [ ] Successful training reached “Training complete.”
 - [ ] Screenshots and redacted API/log evidence attached.
 - [ ] All CI checks still pass.
 
@@ -414,9 +481,12 @@ Validated PR #3 against `live-steward.nexcache.com` using backend deployment
 - Persistence: template selection, contract v1, replacement v2, progress,
   evidence totals, rationale, confidence, and next action survived reload
 - Ingest: deployment, telemetry, and current `QoEScoreEvent` baseline/post-change
-  events correlated to the Essex session
+  events correlated to the Essex session; AIRE-Edge training lifecycle events
+  correlated by `training_session_id`
 - Progression: Progressing → Attention needed → Intervention required →
   Recovered → Promotion justified
+- Training: start → checkpoint → validation → Training complete, with
+  convergence and artifact evidence persisted
 - Isolation: frozen competition branch and `competition-demo` deployment were
   unchanged
 
@@ -437,6 +507,8 @@ Production-capable with the current path:
 - Persisted templates and immutable session contract versions.
 - Deployment and telemetry normalization.
 - Current `QoEScoreEvent` baseline and post-change normalization.
+- AIRE-Edge training lifecycle normalization, structured evidence persistence,
+  deterministic completion/failure assessment, and operator rendering.
 - Objective evidence persistence, deterministic progression, rationale,
   confidence, and recommended actions.
 
@@ -448,6 +520,9 @@ Still dependent on external integration:
   subscribers are live-only.
 - Initial session creation remains an orchestration responsibility. Staging uses
   the controlled SQL seed because this service does not expose `POST /sessions`.
+- The first training run requires AIRE-Edge to hand off
+  `training_session_id` before `TrainingStarted` is published. Automatic
+  creation/rebinding of unmatched training sessions is not implemented.
 
 For a tickable execution surface and evidence filenames, use the
 [`live-steward staging worksheet`](live-steward-staging-worksheet.md) alongside

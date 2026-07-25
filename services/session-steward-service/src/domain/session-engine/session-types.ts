@@ -84,7 +84,7 @@ export interface SessionEvidenceRecord {
   tenantId?: string;
   evidenceType: string;
   evidenceKind?: SessionEvidenceKind;
-  sourceService?: 'qoe-service' | 'evidence-service';
+  sourceService?: 'qoe-service' | 'evidence-service' | 'ai-orchestration-service';
   sourceEventId?: string;
   sourceRef?: string;
   metricSet?: SessionEvidenceMetricSet;
@@ -100,6 +100,11 @@ export type SessionEvidenceKind =
   | 'post_change_qoe'
   | 'qoe_comparison'
   | 'promotion_recommendation'
+  | 'training_context'
+  | 'training_checkpoint'
+  | 'training_validation_metric'
+  | 'training_completion'
+  | 'training_failure'
   | 'artifact'
   | 'citation'
   | 'note';
@@ -113,6 +118,19 @@ export interface SessionEvidenceMetricSet {
   bandwidthTiers?: number;
   cohortPct?: number;
   comparisonDeltaPct?: number;
+  totalTimesteps?: number;
+  checkpointStep?: number;
+  progressPct?: number;
+  metricValue?: number;
+  validationStep?: number;
+  baselineReward?: number;
+  meanReward?: number;
+  confidenceScore?: number;
+  confidenceGate?: number;
+  confidenceMargin?: number;
+  convergencePassed?: number;
+  durationSeconds?: number;
+  failedAtStep?: number;
 }
 
 export interface SessionEvidenceArtifact {

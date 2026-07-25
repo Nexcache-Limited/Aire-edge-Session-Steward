@@ -14,6 +14,7 @@ import { DeploymentEventNormalizer } from '../infrastructure/ingest/deployment-e
 import { EvidenceEventNormalizer } from '../infrastructure/ingest/evidence-event.normalizer';
 import { QoeEventNormalizer } from '../infrastructure/ingest/qoe-event.normalizer';
 import { TelemetryEventNormalizer } from '../infrastructure/ingest/telemetry-event.normalizer';
+import { TrainingEventNormalizer } from '../infrastructure/ingest/training-event.normalizer';
 import { SessionAssessmentService } from './session-assessment.service';
 import { SessionCorrelationService } from './session-correlation.service';
 import { SessionEvaluationService } from './session-evaluation.service';
@@ -157,6 +158,7 @@ function createHarness() {
     events, queries, evidenceRows: evidence.rows, assessmentRows: assessments.rows,
     qoe: new QoeEventNormalizer(), deployment: new DeploymentEventNormalizer(),
     telemetry: new TelemetryEventNormalizer(), evidence: new EvidenceEventNormalizer(),
+    training: new TrainingEventNormalizer(),
   };
 }
 
@@ -309,5 +311,160 @@ describe('Sprint 3 objective evidence pipeline', () => {
     expect(result.records.map((record) => record.kind)).toEqual(['artifact', 'citation', 'note']);
     expect(result.records[0].artifact).toMatchObject({ uri: 's3://evidence/run.json' });
     expect(harness.evidenceRows).toHaveLength(3);
+  });
+
+  it('persists the AIRE-Edge training lifecycle as structured session evidence', async () => {
+    const harness = createHarness();
+    const trainingEvent = (
+      id: string,
+      eventType: string,
+      minutes: number,
+      payload: Record<string, unknown>,
+    ) => ({
+      event_id: id,
+      timestamp: iso(minutes),
+      tenant_id: TENANT,
+      training_session_id: SESSION,
+      run_id: 'mlflow-run-42',
+      environment: 'stg',
+      provider: 'vast',
+      event_type: eventType,
+      version: 'v1',
+      deployment_id: null,
+      payload,
+    });
+
+    await harness.events.ingest(
+      harness.training.normalize(
+        trainingEvent('training-start', 'TrainingStarted', 1, {
+          profile: 'standard',
+          algorithm: 'PPO',
+          total_timesteps: 100000,
+          baseline_reward: 12.5,
+        }),
+      ),
+    );
+    await harness.events.ingest(
+      harness.training.normalize(
+        trainingEvent('training-checkpoint', 'CheckpointProduced', 2, {
+          checkpoint_step: 50000,
+          checkpoint_path: 's3://models/run-42/checkpoint.zip',
+          total_timesteps: 100000,
+          progress_pct: 50,
+        }),
+      ),
+    );
+    await harness.events.ingest(
+      harness.training.normalize(
+        trainingEvent('training-validation', 'ValidationMetricRecorded', 3, {
+          metric_name: 'mean_reward',
+          metric_value: 18.3,
+          step: 50000,
+          baseline_reward: 12.5,
+          confidence_score: 0.91,
+          confidence_gate: 0.8,
+          converged: true,
+        }),
+      ),
+    );
+    await harness.events.ingest(
+      harness.training.normalize(
+        trainingEvent('training-complete', 'TrainingCompleted', 4, {
+          total_timesteps: 100000,
+          mean_reward: 18.3,
+          baseline_reward: 12.5,
+          confidence_score: 0.91,
+          confidence_gate: 0.8,
+          converged: true,
+          artifact_path: 's3://models/run-42/final.zip',
+          duration_seconds: 240,
+        }),
+      ),
+    );
+
+    expect(harness.evidenceRows.map((item) => item.evidenceKind)).toEqual([
+      'training_context',
+      'training_checkpoint',
+      'training_validation_metric',
+      'training_completion',
+    ]);
+    expect(
+      harness.evidenceRows.find((item) => item.evidenceKind === 'training_checkpoint'),
+    ).toMatchObject({
+      metricSet: { checkpointStep: 50000, progressPct: 50 },
+      artifact: {
+        artifactType: 'training_checkpoint',
+        uri: 's3://models/run-42/checkpoint.zip',
+      },
+    });
+    expect(
+      harness.evidenceRows.find((item) => item.evidenceKind === 'training_completion'),
+    ).toMatchObject({
+      metricSet: {
+        meanReward: 18.3,
+        confidenceScore: 0.91,
+        confidenceGate: 0.8,
+        convergencePassed: 1,
+      },
+      artifact: {
+        artifactType: 'training_model',
+        uri: 's3://models/run-42/final.zip',
+      },
+    });
+    expect(
+      harness.evidenceRows.find((item) => item.evidenceKind === 'training_completion')
+        ?.metricSet?.confidenceMargin,
+    ).toBeCloseTo(0.11);
+    const detail = await harness.queries.detail(TENANT, SESSION);
+    expect(detail.evidenceSummary.training).toMatchObject({
+      startedPresent: true,
+      checkpointPresent: true,
+      validationPresent: true,
+      completionPresent: true,
+      failurePresent: false,
+      checkpointProgressPct: 50,
+      meanReward: 18.3,
+      confidenceScore: 0.91,
+      converged: true,
+      artifactUri: 's3://models/run-42/final.zip',
+    });
+  });
+
+  it('persists TrainingFailed error context as terminal objective evidence', async () => {
+    const harness = createHarness();
+    await harness.events.ingest(
+      harness.training.normalize({
+        event_id: '50000000-0000-4000-8000-000000000005',
+        timestamp: iso(2),
+        tenant_id: TENANT,
+        training_session_id: SESSION,
+        run_id: null,
+        environment: 'stg',
+        provider: 'vast',
+        event_type: 'TrainingFailed',
+        version: 'v1',
+        deployment_id: null,
+        payload: {
+          error_type: 'WorkerLost',
+          error_message: 'Vast worker became unavailable',
+          failed_at_step: 24000,
+          duration_seconds: 120,
+        },
+      }),
+    );
+
+    expect(harness.evidenceRows[0]).toMatchObject({
+      evidenceKind: 'training_failure',
+      metricSet: { failedAtStep: 24000, durationSeconds: 120 },
+      value: {
+        error_type: 'WorkerLost',
+        error_message: 'Vast worker became unavailable',
+      },
+    });
+    const detail = await harness.queries.detail(TENANT, SESSION);
+    expect(detail.evidenceSummary.training).toMatchObject({
+      failurePresent: true,
+      failureType: 'WorkerLost',
+    });
   });
 });

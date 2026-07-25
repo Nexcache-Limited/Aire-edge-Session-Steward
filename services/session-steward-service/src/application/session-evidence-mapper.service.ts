@@ -33,6 +33,11 @@ const string = (source: Json, ...keys: string[]): string | undefined => {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 };
 
+const boolean = (source: Json, ...keys: string[]): boolean | undefined => {
+  const value = first(source, ...keys);
+  return typeof value === 'boolean' ? value : undefined;
+};
+
 const compact = (value: Json): Json =>
   Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 
@@ -41,6 +46,11 @@ const evidenceKind: Partial<Record<string, SessionEvidenceKind>> = {
   'qoe.validation.completed': 'post_change_qoe',
   'qoe.comparison.generated': 'qoe_comparison',
   'qoe.recommendation.generated': 'promotion_recommendation',
+  'training.started': 'training_context',
+  'training.checkpoint.produced': 'training_checkpoint',
+  'training.validation.metric.recorded': 'training_validation_metric',
+  'training.completed': 'training_completion',
+  'training.failed': 'training_failure',
   'evidence.recorded': 'artifact',
   'evidence.pack.updated': 'artifact',
   'evidence.citation.linked': 'citation',
@@ -65,7 +75,7 @@ export class SessionEvidenceMapperService {
     if (existing) return existing;
 
     const metrics = compact(this.metrics(event.payload) as Json);
-    const artifact = compact(this.artifact(event.payload) as Json);
+    const artifact = compact(this.artifact(event.payload, kind) as Json);
     const freshnessExpiresAt = this.freshness(event);
     const candidate: DeepPartial<SessionEvidenceEntity> = {
         sessionId: event.sessionId,
@@ -87,6 +97,9 @@ export class SessionEvidenceMapperService {
   private metrics(payload: Json): SessionEvidenceMetricSet {
     const source = asRecord(payload.metricSet) ?? asRecord(payload.metric_set) ?? asRecord(payload.metrics) ?? payload;
     const tier = string(source, 'bandwidthTier', 'bandwidth_tier');
+    const confidenceScore = number(source, 'confidenceScore', 'confidence_score');
+    const confidenceGate = number(source, 'confidenceGate', 'confidence_gate');
+    const converged = boolean(source, 'converged');
     return {
       qoeScore: number(source, 'qoeScore', 'qoe_score'),
       packetLossPct: number(source, 'packetLossPct', 'packet_loss_pct'),
@@ -103,15 +116,60 @@ export class SessionEvidenceMapperService {
         'qoeImprovementPct',
         'qoe_improvement_pct',
       ),
+      totalTimesteps: number(source, 'totalTimesteps', 'total_timesteps'),
+      checkpointStep: number(source, 'checkpointStep', 'checkpoint_step'),
+      progressPct: number(source, 'progressPct', 'progress_pct'),
+      metricValue: number(source, 'metricValue', 'metric_value'),
+      validationStep: number(source, 'step'),
+      baselineReward: number(source, 'baselineReward', 'baseline_reward'),
+      meanReward: number(source, 'meanReward', 'mean_reward'),
+      confidenceScore,
+      confidenceGate,
+      confidenceMargin:
+        confidenceScore !== undefined && confidenceGate !== undefined
+          ? confidenceScore - confidenceGate
+          : undefined,
+      convergencePassed: converged === undefined ? undefined : converged ? 1 : 0,
+      durationSeconds: number(source, 'durationSeconds', 'duration_seconds'),
+      failedAtStep: number(source, 'failedAtStep', 'failed_at_step'),
     };
   }
 
-  private artifact(payload: Json): SessionEvidenceArtifact {
+  private artifact(
+    payload: Json,
+    kind: SessionEvidenceKind,
+  ): SessionEvidenceArtifact {
     const source = asRecord(payload.artifact) ?? payload;
+    const trainingArtifactType =
+      kind === 'training_checkpoint'
+        ? 'training_checkpoint'
+        : kind === 'training_completion'
+          ? 'training_model'
+          : undefined;
     return {
-      artifactType: string(source, 'artifactType', 'artifact_type', 'packageType', 'package_type'),
-      uri: string(source, 'uri', 'url', 'downloadUrl', 'download_url', 's3Key', 's3_key'),
-      title: string(source, 'title', 'name'),
+      artifactType:
+        string(source, 'artifactType', 'artifact_type', 'packageType', 'package_type') ??
+        trainingArtifactType,
+      uri: string(
+        source,
+        'uri',
+        'url',
+        'downloadUrl',
+        'download_url',
+        's3Key',
+        's3_key',
+        'checkpointPath',
+        'checkpoint_path',
+        'artifactPath',
+        'artifact_path',
+      ),
+      title:
+        string(source, 'title', 'name') ??
+        (kind === 'training_checkpoint'
+          ? 'Training checkpoint'
+          : kind === 'training_completion'
+            ? 'Completed training artifact'
+            : undefined),
       citationKey: string(source, 'citationKey', 'citation_key'),
     };
   }

@@ -2,7 +2,8 @@ export type StewardSourceService =
   | 'deployment-service'
   | 'telemetry-service'
   | 'qoe-service'
-  | 'evidence-service';
+  | 'evidence-service'
+  | 'ai-orchestration-service';
 
 export interface StewardEventEnvelope {
   eventId: string;

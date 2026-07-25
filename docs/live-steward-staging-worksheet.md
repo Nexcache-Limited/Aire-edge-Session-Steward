@@ -34,6 +34,8 @@ Fill this in before running any command. Do not write secret values here.
 | Concrete telemetry event subject | |
 | Concrete QoE publish subject | |
 | Concrete evidence publish subject | |
+| Concrete training publish subject | |
+| Training UUID handoff mechanism/owner | |
 | Event publishing tool/owner | |
 | Evidence folder outside Git | |
 
@@ -109,17 +111,19 @@ unknown TLS requirements.
 
 - [ ] NATS credentials are available through a secret manager.
 - [ ] The backend network can reach the NATS cluster.
-- [ ] Deployment, telemetry, QoE, and evidence subscription subjects are
+- [ ] Deployment, telemetry, QoE, evidence, and training subscription subjects are
       confirmed.
 - [ ] The concrete QoE subject used for publishing is confirmed; it matches
       `NATS_QOE_SUBJECT`.
 - [ ] An operator or upstream service can publish the controlled Essex sequence.
+- [ ] AIRE-Edge can expose `training_session_id` before `TrainingStarted` is
+      published, leaving enough time to seed the Steward session.
 - [ ] The backend will be online before any event is published.
 - [ ] Everyone understands that the current subscribers are live-only and do
       not replay missed messages.
 
-**Stop:** any subject mismatch, no controlled publisher, or no way to inspect
-subscriber logs.
+**Stop:** any subject mismatch, no controlled publisher, no way to inspect
+subscriber logs, or no pre-publication training UUID handoff.
 
 ### Vercel and operator access
 
@@ -142,6 +146,9 @@ competition project.
 - [ ] Essex session UUID selected.
 - [ ] Essex environment UUID selected.
 - [ ] Essex workflow ID selected.
+- [ ] Training tenant UUID identified.
+- [ ] Training session UUID will come from AIRE-Edge, not be independently generated.
+- [ ] Owner and procedure for pre-publication training session seeding agreed.
 - [ ] API bearer token generated with at least 32 characters.
 - [ ] Cookie-signing secret generated with at least 32 characters.
 - [ ] API bearer token and cookie secret are different.
@@ -213,6 +220,7 @@ of secret values.
 | `NATS_TELEMETRY_SUBJECT` | | [ ] |
 | `NATS_QOE_SUBJECT` | | [ ] |
 | `NATS_EVIDENCE_SUBJECT` | | [ ] |
+| `NATS_TRAINING_SUBJECT` | `aire.*.training.session.*.events` | [ ] |
 | `OTEL_SERVICE_NAME` | `aire-edge-session-steward-service` or blank | [ ] |
 
 - [ ] The API token reference is identical on web and backend.
@@ -548,7 +556,7 @@ or UI and API disagree.
 ### Step 11 — enable NATS
 
 - [ ] Set `NATS_ENABLED=true`.
-- [ ] Confirm NATS URL and all four subscription subjects.
+- [ ] Confirm NATS URL and all five subscription subjects.
 - [ ] Restart/redeploy only the backend.
 - [ ] Confirm it remains tied to the recorded artifact/SHA.
 
@@ -560,13 +568,14 @@ Subscribed to aire.deployment.events
 Subscribed to aire.telemetry.events
 Subscribed to aire.*.qoe.>
 Subscribed to aire.*.evidence.>
+Subscribed to aire.*.training.session.*.events
 ```
 
 Use the configured values if subjects differ from these defaults.
 
 Evidence:
 
-- [ ] `24-nats-subscriptions.log` — connection and four subscription lines;
+- [ ] `24-nats-subscriptions.log` — connection and five subscription lines;
       redact NATS URL and credentials.
 
 **Stop:** connection failure, missing subscription, subject mismatch, or backend
@@ -635,6 +644,66 @@ The final evidence must prove:
 **Stop:** rejected event, duplicate ID, unmatched correlation, UI/API mismatch,
 missing evidence, failed guardrail, or an unexpected state transition.
 
+### Step 13 — run and record the AIRE-Edge training progression
+
+Pre-publication gate:
+
+- [ ] AIRE-Edge generated and handed off `training_session_id`.
+- [ ] The handed-off tenant UUID matches `SESSION_STEWARD_TENANT_ID`.
+- [ ] `ensure-training-session.sql` succeeded for those exact UUIDs.
+- [ ] Vercel `STEWARD_DEMO_SESSION_ID` points to the training UUID.
+- [ ] The Vercel deployment still reports the recorded source SHA.
+- [ ] The “AIRE-Edge training run” template was created and survived reload.
+- [ ] The training contract was assigned and survived reload.
+- [ ] The backend training subscription is active.
+- [ ] AIRE-Edge has not yet published `TrainingStarted`.
+
+Seed command from the repository root:
+
+```bash
+psql "$STAGING_DATABASE_URL" \
+  -v training_session_id="$AIRE_TRAINING_SESSION_ID" \
+  -v tenant_id="$TRAINING_TENANT_ID" \
+  -f services/session-steward-service/scripts/staging/ensure-training-session.sql
+```
+
+Successful-run evidence:
+
+| Sequence | Source event | Expected persisted result | Captured |
+| --- | --- | --- | --- |
+| 1 | `TrainingStarted` | `training_context`; Progressing | [ ] |
+| 2 | `CheckpointProduced` | `training_checkpoint`; progress/artifact visible | [ ] |
+| 3 | `ValidationMetricRecorded` | `training_validation_metric`; confidence/convergence visible | [ ] |
+| 4 | `TrainingCompleted` | `training_completion`; “Training complete” | [ ] |
+
+- [ ] `33-training-session-seed.txt` — UUIDs and resulting active session row.
+- [ ] `34-training-contract-after-reload.png`
+- [ ] `35-training-started.png`
+- [ ] `36-training-checkpoint.png`
+- [ ] `37-training-validation.png`
+- [ ] `38-training-complete.png`
+- [ ] `39-training-ingest.log` — five-subscription proof and accepted training event IDs.
+- [ ] `40-training-evidence.json` — redacted evidence response.
+- [ ] `41-training-final-session.json` — redacted final session response.
+
+The final proof must show:
+
+- All four successful lifecycle evidence kinds are present.
+- Checkpoint progress and checkpoint/final artifact references persisted.
+- Confidence meets its emitted gate and `converged=true`.
+- Contract steps are satisfied.
+- Final API state is `completed`, rendered as “Training complete.”
+- Recommended next action accepts the run and retains its evidence/artifact.
+
+Use a separate training session to validate `TrainingFailed` if failure-path
+evidence is required. Never publish `TrainingCompleted` and `TrainingFailed`
+for the same session.
+
+**Stop:** the UUID is unavailable before publication, `TrainingStarted` is
+unmatched, tenant/session correlation differs, an event is rejected or
+duplicated, the operator disagrees with persisted API data, or the final
+contract criteria fail.
+
 ## Evidence redaction and packaging
 
 Create an evidence folder outside Git. Before attaching anything, remove:
@@ -661,7 +730,7 @@ Keep visible:
 
 Final package:
 
-- [ ] Files `00` through `32` are present where applicable.
+- [ ] Files `00` through `41` are present where applicable.
 - [ ] Every image is readable and timestamped or tied to a deployment/session.
 - [ ] Every log/JSON file is redacted and still proves its stated point.
 - [ ] No secret scanner warning remains.
@@ -678,10 +747,12 @@ Final package:
 - [ ] Operator login/logout passed.
 - [ ] Template persistence and selection passed.
 - [ ] Contract v1 and immutable replacement v2 passed.
-- [ ] NATS and all four subscriptions passed.
+- [ ] NATS and all five subscriptions passed.
 - [ ] Baseline and post-change `QoEScoreEvent` persistence passed.
 - [ ] Progressing, Attention needed, Intervention required, Recovered, and
       Promotion justified were captured.
+- [ ] Training start, checkpoint, validation, and Training complete were
+      captured from a session correlated by the AIRE-generated UUID.
 - [ ] Final API data matched the operator UI.
 - [ ] Evidence package is redacted and attached.
 - [ ] CI still passes on the staged source SHA.
@@ -704,14 +775,17 @@ Validated PR #3 against `live-steward.nexcache.com`.
 - Persistence: template selection, contract v1, immutable replacement v2,
   progress, evidence totals, rationale, confidence, and next action survived reload
 - Ingest: deployment, telemetry, and current `QoEScoreEvent` baseline/post-change
-  events correlated and persisted
+  events correlated and persisted; AIRE-Edge training lifecycle events
+  correlated by `training_session_id`
 - Progression: Progressing → Attention needed → Intervention required →
   Recovered → Promotion justified
+- Training: start → checkpoint → validation → Training complete, including
+  convergence and final artifact evidence
 - Isolation: the frozen competition branch and `competition-demo` deployment
   were unchanged
 
 Attached: deployment proof, migration/schema output, redacted API responses,
-NATS/QoE logs, and operator screenshots.
+NATS/QoE/training logs, and operator screenshots.
 
 The current `QoEScoreEvent` path, deterministic assessment, persisted contracts,
 and operator workflow are operational in staging. Artifact/citation/note

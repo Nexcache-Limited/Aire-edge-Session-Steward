@@ -10,6 +10,8 @@ import { QoeEventNormalizer } from './qoe-event.normalizer';
 import { QoeEventsSubscriber } from './qoe-events.subscriber';
 import { TelemetryEventNormalizer } from './telemetry-event.normalizer';
 import { TelemetryEventsSubscriber } from './telemetry-events.subscriber';
+import { TrainingEventNormalizer } from './training-event.normalizer';
+import { TrainingEventsSubscriber } from './training-events.subscriber';
 
 @Module({
   imports: [SessionStewardApplicationModule],
@@ -19,10 +21,12 @@ import { TelemetryEventsSubscriber } from './telemetry-events.subscriber';
     TelemetryEventNormalizer,
     QoeEventNormalizer,
     EvidenceEventNormalizer,
+    TrainingEventNormalizer,
     DeploymentEventsSubscriber,
     TelemetryEventsSubscriber,
     QoeEventsSubscriber,
     EvidenceEventsSubscriber,
+    TrainingEventsSubscriber,
   ],
 })
 export class SessionIngestModule {}

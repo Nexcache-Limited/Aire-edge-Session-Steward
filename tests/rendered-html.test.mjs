@@ -81,6 +81,9 @@ test("keeps the authenticated operator workflow isolated from the competition re
   assert.match(workspace, /delivery confidence/);
   assert.match(workspace, /qoe\.baseline\.completed/);
   assert.match(workspace, /promotion_recommendation/);
+  assert.match(workspace, /training\.started/);
+  assert.match(workspace, /training_checkpoint/);
+  assert.match(workspace, /Training complete/);
   assert.doesNotMatch(workspace, /const beats|Advance evidence/);
   assert.match(workspace, /RECOMMENDED NEXT ACTION/);
   assert.match(

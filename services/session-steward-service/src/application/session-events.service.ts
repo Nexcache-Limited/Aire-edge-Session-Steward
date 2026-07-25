@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 
@@ -89,7 +89,18 @@ export class SessionEventsService {
     if (!session) return { event, matched: false, duplicate: false };
 
     await this.evidenceMapper.extract(event);
-    const assessment = await this.evaluation.evaluate(session.id, envelope.occurredAt);
+    let assessment;
+    try {
+      assessment = await this.evaluation.evaluate(session.id, envelope.occurredAt);
+    } catch (error) {
+      if (
+        error instanceof NotFoundException &&
+        error.message === `Session ${session.id} has no contract`
+      ) {
+        return { event, matched: true, duplicate: false };
+      }
+      throw error;
+    }
     return {
       event,
       assessmentId: assessment.id,

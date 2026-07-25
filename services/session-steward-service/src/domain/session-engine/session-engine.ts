@@ -105,6 +105,9 @@ function observedMetric(
       packet_loss_pct: ['packetLossPct'],
       qoe_improvement_pct: ['comparisonDeltaPct'],
       bandwidth_tiers: ['bandwidthTiers'],
+      training_confidence_margin: ['confidenceMargin'],
+      training_converged: ['convergencePassed'],
+      mean_reward: ['meanReward'],
     };
     const metricValue = [criterion.metricName, ...(metricAliases[criterion.metricName] ?? [])]
       .map((key) => metricSet?.[key])
@@ -126,6 +129,11 @@ const objectiveKinds = new Set([
   'post_change_qoe',
   'qoe_comparison',
   'promotion_recommendation',
+  'training_context',
+  'training_checkpoint',
+  'training_validation_metric',
+  'training_completion',
+  'training_failure',
 ]);
 
 function isObjectiveEvidence(item: SessionEvidenceRecord): boolean {
@@ -301,6 +309,10 @@ export class SessionEngine {
     );
     const allRequiredComplete = completedRequired.length === requiredSteps.length;
     const recoveredFromOverdueStep = this.hasLateRecovery(completions);
+    const trainingWorkflow = input.session.workflowType.includes('training');
+    const terminalTrainingFailure = [...events]
+      .reverse()
+      .find((event) => event.normalizedEventType === 'training.failed');
 
     let confidence = 96;
     if (expectedStep && !recentProgress) confidence -= 4;
@@ -318,7 +330,10 @@ export class SessionEngine {
     const recommendationUnjustified = Boolean(
       facts.recommendation && !facts.recommendationJustified,
     );
-    if (allRequiredComplete && allCriteriaMet && !recommendationUnjustified) {
+    if (terminalTrainingFailure) {
+      state = 'failed';
+      confidence = Math.min(confidence, 15);
+    } else if (allRequiredComplete && allCriteriaMet && !recommendationUnjustified) {
       state = 'completed';
       confidence = Math.max(confidence, 95);
     } else if (allRequiredComplete && anyCriteriaNotMet) {
@@ -355,6 +370,13 @@ export class SessionEngine {
       recoveredFromOverdueStep,
       facts,
     });
+    if (terminalTrainingFailure) {
+      signals.unshift({
+        code: 'training_failed',
+        severity: 'critical',
+        message: 'AIRE-Edge reported that the training run failed.',
+      });
+    }
     const contractSteps = this.evaluateContractSteps(
       steps,
       completedStepIds,
@@ -364,10 +386,20 @@ export class SessionEngine {
       state,
       assessedAtMs,
     );
-    const rationaleSummary = this.rationaleSummary(state, expectedStep, facts);
+    const rationaleSummary = this.rationaleSummary(
+      state,
+      expectedStep,
+      facts,
+      trainingWorkflow,
+      Boolean(terminalTrainingFailure),
+    );
     const recommendedNextAction =
       state === 'completed'
-        ? 'Approve the contracted promotion decision and retain the defined guardrails.'
+        ? trainingWorkflow
+          ? 'Accept the completed training run and retain its validation evidence and artifact reference.'
+          : 'Approve the contracted promotion decision and retain the defined guardrails.'
+        : terminalTrainingFailure
+          ? 'Review the reported training error, correct the run configuration, and start a new training session.'
         : expectedStep?.operatorRationale ??
           (expectedStep
             ? `Complete ${expectedStep.title} and attach fresh objective evidence.`
@@ -423,7 +455,8 @@ export class SessionEngine {
       const failed =
         linkedCriterion?.status === 'not_met' ||
         (step.expectedEventType === 'qoe.validation.completed' &&
-          state === 'failed');
+          state === 'failed') ||
+        (state === 'failed' && expectedStep?.id === step.id);
       let status: ContractStepAssessment['status'] = 'pending';
       if (failed) status = 'failed';
       else if (stale) status = 'stale';
@@ -463,9 +496,13 @@ export class SessionEngine {
     state: SessionState,
     expectedStep: SessionContractStepRecord | undefined,
     facts: ObjectiveEvidenceFacts,
+    trainingWorkflow = false,
+    terminalTrainingFailure = false,
   ): string {
     if (state === 'completed') {
-      return 'The full evidence chain is current and every contracted success rule passed.';
+      return trainingWorkflow
+        ? 'Training completed with current checkpoint, validation, convergence, and artifact evidence.'
+        : 'The full evidence chain is current and every contracted success rule passed.';
     }
     if (state === 'recovered') {
       return 'Fresh objective evidence restored progress after a previously overdue step.';
@@ -477,6 +514,9 @@ export class SessionEngine {
       return `${expectedStep?.title ?? 'The next contract step'} is at risk and requires fresh evidence.`;
     }
     if (state === 'failed') {
+      if (terminalTrainingFailure) {
+        return 'AIRE-Edge ended the training run with a failure before the contract completed.';
+      }
       return 'Objective evidence is present, but one or more contracted guardrails failed.';
     }
     return facts.baseline.length
@@ -516,7 +556,7 @@ export class SessionEngine {
     const change = [...events]
       .reverse()
       .find((event) =>
-        ['deployment.started', 'deployment.completed', 'routing.changed'].includes(
+        ['deployment.started', 'deployment.completed', 'routing.changed', 'training.started'].includes(
           event.normalizedEventType,
         ),
       );

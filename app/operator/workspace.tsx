@@ -19,6 +19,7 @@ type TemplateStep = {
   expectedEventType: string;
   expectedEvidenceKinds?: string[];
   freshnessRequirementSeconds?: number;
+  successCriterionKey?: string;
   operatorRationale?: string;
   maxWaitSeconds?: number;
   required?: boolean;
@@ -43,6 +44,7 @@ type SessionStep = TemplateStep & {
 type SessionDetail = {
   id: string;
   objective: string;
+  workflowType: string;
   contract: {
     id: string;
     name: string;
@@ -68,6 +70,20 @@ type SessionDetail = {
     comparisonDeltaPct: number | null;
     satisfiedContractSteps: number;
     totalContractSteps: number;
+    training: {
+      startedPresent: boolean;
+      checkpointPresent: boolean;
+      validationPresent: boolean;
+      completionPresent: boolean;
+      failurePresent: boolean;
+      checkpointProgressPct: number | null;
+      meanReward: number | null;
+      confidenceScore: number | null;
+      confidenceGate: number | null;
+      converged: boolean;
+      artifactUri: string | null;
+      failureType: string | null;
+    };
   };
   lastAssessment: {
     confidence: number;
@@ -138,6 +154,64 @@ const essexTemplateDefinition = {
   ],
 };
 
+const trainingTemplateDefinition = {
+  name: "AIRE-Edge training run",
+  description:
+    "Track a training run from start through checkpoint, validation, and completion.",
+  objectiveType: "model-training",
+  steps: [
+    {
+      key: "training-started",
+      title: "Start training",
+      expectedEventType: "training.started",
+      expectedEvidenceKinds: ["training_context"],
+    },
+    {
+      key: "checkpoint-produced",
+      title: "Produce a checkpoint",
+      expectedEventType: "training.checkpoint.produced",
+      expectedEvidenceKinds: ["training_checkpoint"],
+      maxWaitSeconds: 1800,
+      operatorRationale:
+        "Confirm that training is advancing and has produced a recoverable checkpoint.",
+    },
+    {
+      key: "validation-recorded",
+      title: "Record validation evidence",
+      expectedEventType: "training.validation.metric.recorded",
+      expectedEvidenceKinds: ["training_validation_metric"],
+      maxWaitSeconds: 900,
+      operatorRationale:
+        "Record fresh validation evidence before accepting the trained artifact.",
+    },
+    {
+      key: "training-completed",
+      title: "Complete training",
+      expectedEventType: "training.completed",
+      expectedEvidenceKinds: ["training_completion"],
+      successCriterionKey: "training-converged",
+      operatorRationale:
+        "Complete the run with convergence evidence and an artifact reference.",
+    },
+  ] satisfies TemplateStep[],
+  successCriteria: [
+    {
+      key: "training-confidence",
+      metricName: "training_confidence_margin",
+      operator: ">=",
+      thresholdValue: 0,
+      unit: "score",
+    },
+    {
+      key: "training-converged",
+      metricName: "training_converged",
+      operator: ">=",
+      thresholdValue: 1,
+      unit: "boolean",
+    },
+  ],
+};
+
 const stateLabels: Record<string, string> = {
   progressing: "Progressing",
   attention_needed: "Attention needed",
@@ -177,8 +251,18 @@ export default function OperatorWorkspace({
     () => templates.find((template) => template.id === selectedId) ?? null,
     [selectedId, templates],
   );
+  const trainingWorkflow = session?.workflowType.includes("training") ?? false;
+  const templateDefinition = trainingWorkflow
+    ? trainingTemplateDefinition
+    : essexTemplateDefinition;
   const state = session?.progression.state ?? "progressing";
-  const stateLabel = session ? (stateLabels[state] ?? state) : "Connecting";
+  const stateLabel = session
+    ? trainingWorkflow && state === "completed"
+      ? "Training complete"
+      : trainingWorkflow && state === "failed"
+        ? "Training failed"
+        : (stateLabels[state] ?? state)
+    : "Connecting";
   const confidence = session?.lastAssessment?.confidence;
   const sessionSteps =
     session?.contract?.steps ??
@@ -264,6 +348,16 @@ export default function OperatorWorkspace({
     window.localStorage.setItem(`aire-steward-template:${sessionId}`, templateId);
   }
 
+  function beginTemplateCreation() {
+    setName(`${templateDefinition.name} — validated`);
+    setDescription(
+      trainingWorkflow
+        ? "Require checkpoint, validation, convergence, and final artifact evidence."
+        : "Require fresh validation across all bandwidth tiers.",
+    );
+    setEditing(true);
+  }
+
   async function saveTemplate() {
     if (!name.trim()) return;
     setSaving(true);
@@ -273,7 +367,7 @@ export default function OperatorWorkspace({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...essexTemplateDefinition,
+          ...templateDefinition,
           name: name.trim(),
           description: description.trim(),
         }),
@@ -364,11 +458,16 @@ export default function OperatorWorkspace({
 
       <section className={styles.hero}>
         <div>
-          <p>LIVE SESSION · UNIVERSITY OF ESSEX</p>
+          <p>
+            {trainingWorkflow
+              ? "LIVE SESSION · AIRE-EDGE TRAINING"
+              : "LIVE SESSION · UNIVERSITY OF ESSEX"}
+          </p>
           <h1>{session?.objective ?? "Loading the persisted session objective…"}</h1>
           <span>
-            Objective-aware judgement over deployment, health, QoE, and evidence
-            lifecycle events.
+            {trainingWorkflow
+              ? "Objective-aware judgement over training progress, validation, convergence, and artifacts."
+              : "Objective-aware judgement over deployment, health, QoE, and evidence lifecycle events."}
           </span>
         </div>
         <div className={`${styles.state} ${styles[state] ?? ""}`}>
@@ -389,7 +488,7 @@ export default function OperatorWorkspace({
               <span>CONTRACT TEMPLATE</span>
               <h2>Definition of done</h2>
             </div>
-            <button onClick={() => setEditing(true)}>New template</button>
+            <button onClick={beginTemplateCreation}>New template</button>
           </div>
           <div
             className={`${persistenceStyles.apiStatus} ${persistenceStyles[apiStatus]}`}
@@ -416,7 +515,12 @@ export default function OperatorWorkspace({
               ))}
             </select>
           </label>
-          <p>{selected?.description ?? "Create the first persisted Essex template."}</p>
+          <p>
+            {selected?.description ??
+              (trainingWorkflow
+                ? "Create the first persisted training template."
+                : "Create the first persisted Essex template.")}
+          </p>
           <label className={styles.toggle}>
             <input
               type="checkbox"
@@ -523,36 +627,73 @@ export default function OperatorWorkspace({
           </div>
           <section>
             <span>EVIDENCE SUMMARY</span>
-            <dl>
-              <div>
-                <dt>Baseline</dt>
-                <dd>{session?.evidenceSummary.baselinePresent ? "Current" : "Missing"}</dd>
-              </div>
-              <div>
-                <dt>QoE validation</dt>
-                <dd>
-                  {session?.evidenceSummary.postChangeValidationPresent
-                    ? "Current"
-                    : "Missing"}
-                </dd>
-              </div>
-              <div>
-                <dt>QoE improvement</dt>
-                <dd>
-                  {session?.evidenceSummary.comparisonDeltaPct == null
-                    ? "Pending"
-                    : `${session.evidenceSummary.comparisonDeltaPct}%`}
-                </dd>
-              </div>
-              <div>
-                <dt>Packet loss</dt>
-                <dd>
-                  {session?.evidenceSummary.latestPacketLossPct == null
-                    ? "Pending"
-                    : `${session.evidenceSummary.latestPacketLossPct}%`}
-                </dd>
-              </div>
-            </dl>
+            {trainingWorkflow ? (
+              <dl>
+                <div>
+                  <dt>Training started</dt>
+                  <dd>{session?.evidenceSummary.training.startedPresent ? "Recorded" : "Missing"}</dd>
+                </div>
+                <div>
+                  <dt>Latest checkpoint</dt>
+                  <dd>
+                    {session?.evidenceSummary.training.checkpointProgressPct == null
+                      ? "Pending"
+                      : `${session.evidenceSummary.training.checkpointProgressPct}%`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Validation</dt>
+                  <dd>
+                    {session?.evidenceSummary.training.validationPresent
+                      ? session.evidenceSummary.training.converged
+                        ? "Converged"
+                        : "Recorded"
+                      : "Pending"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Final artifact</dt>
+                  <dd>
+                    {session?.evidenceSummary.training.failurePresent
+                      ? `Failed · ${session.evidenceSummary.training.failureType ?? "see evidence"}`
+                      : session?.evidenceSummary.training.completionPresent
+                        ? "Available"
+                        : "Pending"}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <dl>
+                <div>
+                  <dt>Baseline</dt>
+                  <dd>{session?.evidenceSummary.baselinePresent ? "Current" : "Missing"}</dd>
+                </div>
+                <div>
+                  <dt>QoE validation</dt>
+                  <dd>
+                    {session?.evidenceSummary.postChangeValidationPresent
+                      ? "Current"
+                      : "Missing"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>QoE improvement</dt>
+                  <dd>
+                    {session?.evidenceSummary.comparisonDeltaPct == null
+                      ? "Pending"
+                      : `${session.evidenceSummary.comparisonDeltaPct}%`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Packet loss</dt>
+                  <dd>
+                    {session?.evidenceSummary.latestPacketLossPct == null
+                      ? "Pending"
+                      : `${session.evidenceSummary.latestPacketLossPct}%`}
+                  </dd>
+                </div>
+              </dl>
+            )}
           </section>
           <button onClick={() => void refreshSession()} disabled={saving}>
             {saving ? "Refreshing…" : "Refresh persisted session"}
@@ -560,8 +701,8 @@ export default function OperatorWorkspace({
         </aside>
       </section>
       <footer>
-        Contract-aware progression · deterministic evidence rules · QoE consumer
-        implemented · evidence publisher pending
+        Contract-aware progression · deterministic evidence rules · QoE and
+        training consumers implemented · evidence publisher pending
       </footer>
     </main>
   );

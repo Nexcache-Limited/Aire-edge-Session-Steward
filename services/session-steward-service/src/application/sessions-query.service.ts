@@ -73,9 +73,52 @@ const evidenceSummary = (evidence: SessionEvidenceEntity[]) => {
   };
 };
 
-const operatorProgressionState = (state: string | undefined) => {
+const trainingEvidenceSummary = (evidence: SessionEvidenceEntity[]) => {
+  const latest = (kind: string) =>
+    [...evidence].reverse().find((item) => item.evidenceKind === kind);
+  const started = latest('training_context');
+  const checkpoint = latest('training_checkpoint');
+  const validation = latest('training_validation_metric');
+  const completion = latest('training_completion');
+  const failure = latest('training_failure');
+  return {
+    startedPresent: Boolean(started),
+    checkpointPresent: Boolean(checkpoint),
+    validationPresent: Boolean(validation),
+    completionPresent: Boolean(completion),
+    failurePresent: Boolean(failure),
+    checkpointProgressPct: checkpoint?.metricSet?.progressPct ?? null,
+    meanReward:
+      completion?.metricSet?.meanReward ??
+      validation?.metricSet?.metricValue ??
+      null,
+    confidenceScore:
+      completion?.metricSet?.confidenceScore ??
+      validation?.metricSet?.confidenceScore ??
+      null,
+    confidenceGate:
+      completion?.metricSet?.confidenceGate ??
+      validation?.metricSet?.confidenceGate ??
+      null,
+    converged:
+      (completion?.metricSet?.convergencePassed ??
+        validation?.metricSet?.convergencePassed) === 1,
+    artifactUri: completion?.artifact?.uri ?? checkpoint?.artifact?.uri ?? null,
+    failureType:
+      (failure?.value.error_type as string | undefined) ??
+      (failure?.value.errorType as string | undefined) ??
+      null,
+  };
+};
+
+const operatorProgressionState = (
+  state: string | undefined,
+  workflowType: string,
+) => {
   if (state === 'legitimate_wait') return 'progressing';
-  if (state === 'failed') return 'intervention_required';
+  if (state === 'failed' && !workflowType.includes('training')) {
+    return 'intervention_required';
+  }
   return state ?? 'progressing';
 };
 
@@ -175,7 +218,7 @@ export class SessionsQueryService {
         : null,
       lastAssessment: assessmentView(lastAssessment),
       progression: {
-        state: operatorProgressionState(lastAssessment?.state),
+        state: operatorProgressionState(lastAssessment?.state, session.workflowType),
         rationaleSummary:
           lastAssessment?.rationale.rationaleSummary ?? 'Waiting for the first assessment.',
         recommendedNextAction:
@@ -186,6 +229,7 @@ export class SessionsQueryService {
       },
       evidenceSummary: {
         ...evidenceSummary(evidence),
+        training: trainingEvidenceSummary(evidence),
         satisfiedContractSteps:
           lastAssessment?.rationale.contractSteps?.filter((step) => step.status === 'satisfied')
             .length ?? 0,
@@ -201,7 +245,10 @@ export class SessionsQueryService {
       order: { recordedAt: 'ASC' },
     });
     return {
-      summary: evidenceSummary(evidence),
+      summary: {
+        ...evidenceSummary(evidence),
+        training: trainingEvidenceSummary(evidence),
+      },
       records: evidence.map(evidenceView),
     };
   }
