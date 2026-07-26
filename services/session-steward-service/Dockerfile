@@ -17,5 +17,5 @@ COPY --from=builder /build/dist ./dist
 ENV NODE_ENV=production
 USER aire
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD-SHELL wget -qO- "http://localhost:$${PORT:-3000}/health" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -qO- "http://localhost:${PORT:-3000}/health" || exit 1
 CMD ["node", "dist/main"]
