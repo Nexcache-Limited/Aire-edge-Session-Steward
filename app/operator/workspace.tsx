@@ -551,8 +551,10 @@ export default function OperatorWorkspace({
   const scaleRange = scaleMax - scaleMin;
   const baselinePct = ((baselineReward - scaleMin) / scaleRange) * 100;
   const finalPct = finalReward !== null ? ((finalReward - scaleMin) / scaleRange) * 100 : 0;
-  // Count satisfied steps directly from the steps array (API doesn't always return satisfiedContractSteps)
-  const satisfiedSteps = sessionSteps.filter(s => s.status?.status === "satisfied").length;
+  // Count satisfied/completed steps (API may return either value depending on version)
+  const satisfiedSteps = sessionSteps.filter(s =>
+    s.status?.status === "satisfied" || s.status?.status === "completed"
+  ).length;
 
   return (
     <main className={styles.shell}>
@@ -646,13 +648,16 @@ export default function OperatorWorkspace({
             </div>
             <div className={styles.steps}>
               {sessionSteps.map((step, index) => {
-                const status = step.status?.status ?? "pending";
+                const rawStatus = step.status?.status ?? "pending";
+                // Normalise "completed" → "satisfied" for CSS class and icon
+                const cssStatus = rawStatus === "completed" ? "satisfied" : rawStatus;
+                const done = cssStatus === "satisfied";
                 return (
-                  <article className={styles[status]} key={step.key}>
-                    <i>{status === "satisfied" ? "✓" : index + 1}</i>
+                  <article className={styles[cssStatus]} key={step.key}>
+                    <i>{done ? "✓" : index + 1}</i>
                     <div>
                       <strong>{step.title}</strong>
-                      <span>{status.replaceAll("_", " ")}</span>
+                      <span>{done ? "satisfied" : rawStatus.replaceAll("_", " ")}</span>
                     </div>
                   </article>
                 );
