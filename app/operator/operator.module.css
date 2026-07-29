@@ -5,21 +5,24 @@
 .timeline{display:flex;flex-direction:column;gap:0;padding:8px 0}
 .timelineItem{display:grid;grid-template-columns:36px 1fr;gap:0;position:relative}
 .timelineLeft{display:flex;flex-direction:column;align-items:center;gap:0}
-.timelineIcon{width:28px;height:28px;border:1px solid #bbbcb3;background:#f3f2ec;display:grid;place-items:center;font-size:11px;font-family:var(--font-geist-mono);flex-shrink:0;z-index:1}
+.timelineIcon{width:28px;height:28px;border-radius:50%;border:1px solid #bbbcb3;background:#f3f2ec;display:grid;place-items:center;font-size:11px;font-family:var(--font-geist-mono);flex-shrink:0;z-index:1}
 .timelineTerminal .timelineIcon{background:#171814;color:#d8ff43;border-color:#171814}
 .timelineLine{width:1px;background:#bbbcb3;flex:1;min-height:24px}
 .timelineContent{padding:4px 0 20px 12px}
 .timelineContent strong{font-size:12px;display:block;margin-bottom:3px}
 .timelineMeta{display:flex;gap:10px;font:9px var(--font-geist-mono);color:#9a9c92}
 .timelineElapsed{color:#686a61}
-.timelineRef{font:8px var(--font-geist-mono);color:#bbbcb3;display:block;margin-top:2px}
+.timelineRef{font:8px var(--font-geist-mono);color:#bbbcb3;display:block;margin-top:4px}
+.timelineChips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.timelineChip{display:inline-block;background:#e6e5de;border:1px solid #bbbcb3;padding:1px 7px;font:8px var(--font-geist-mono);border-radius:2px;color:#56584f}
 
 /* ── Metric chart ── */
 .metricChart{margin-top:24px;border-top:1px solid #bbbcb3;padding-top:16px}
 .metricChart>span{font:9px var(--font-geist-mono);letter-spacing:.12em;color:#9a9c92}
-.chartBars{display:flex;gap:20px;align-items:flex-end;height:100px;margin:12px 0 6px}
-.chartBar{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1}
-.chartBarFill{width:100%;border-radius:2px 2px 0 0;transition:height .4s ease}
+.chartBars{display:flex;gap:20px;align-items:flex-end;height:120px;margin:12px 0 6px}
+.chartBar{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:100px}
+.chartBarTrack{width:100%;height:80px;display:flex;flex-direction:column;justify-content:flex-end}
+.chartBarFill{width:100%;min-height:3px;border-radius:2px 2px 0 0;transition:height .4s ease}
 .chartBar>span{font:8px var(--font-geist-mono);color:#9a9c92}
 .chartBar>strong{font:11px var(--font-geist-mono);color:#171814}
 .chartDelta{font:11px var(--font-geist-mono);color:#2f9a62;text-align:center}

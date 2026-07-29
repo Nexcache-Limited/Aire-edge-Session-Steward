@@ -271,6 +271,55 @@ const timelineEventIcon: Record<string, string> = {
   "qoe.recommendation.generated": "→",
 };
 
+const timelineEventBg: Record<string, string> = {
+  "training.started": "#f3f2ec",
+  "training.checkpoint.produced": "#eef2fb",
+  "training.validation.metric.recorded": "#d8e8de",
+  "training.completed": "#171814",
+  "training.failed": "#f1d6ce",
+  "deployment.completed": "#f3f2ec",
+  "health.check.passed": "#d8e8de",
+  "qoe.baseline.completed": "#f3f2ec",
+  "qoe.validation.completed": "#d8e8de",
+};
+const timelineEventFg: Record<string, string> = {
+  "training.completed": "#d8ff43",
+  "training.failed": "#ef603f",
+};
+
+function getTimelineChips(event: TimelineEvent): string[] {
+  const p = event.payload;
+  const chips: string[] = [];
+  switch (event.normalizedEventType) {
+    case "training.started":
+      if (p.profile) chips.push(`profile:${p.profile}`);
+      if (p.total_timesteps) chips.push(`timesteps:${p.total_timesteps}`);
+      break;
+    case "training.checkpoint.produced":
+      if (p.checkpoint_step != null) chips.push(`step:${p.checkpoint_step}`);
+      if (p.progress_pct != null) chips.push(`progress:${p.progress_pct}%`);
+      break;
+    case "training.validation.metric.recorded":
+      if (p.metric_value != null) chips.push(`reward:${Number(p.metric_value).toFixed(2)}`);
+      if (p.confidence_score != null) chips.push(`confidence:${Math.round(Number(p.confidence_score) * 100)}%`);
+      if (p.converged != null) chips.push(`converged:${p.converged}`);
+      break;
+    case "training.completed":
+      if (p.mean_reward != null) chips.push(`reward:${Number(p.mean_reward).toFixed(2)}`);
+      if (p.artifact_path) chips.push(`artifact:${String(p.artifact_path).split("/").pop()}`);
+      break;
+    case "qoe.baseline.completed":
+      if (p.qoe_score != null) chips.push(`baseline:qoe=${p.qoe_score}`);
+      if (p.packet_loss_pct != null) chips.push(`baseline:packet_loss=${p.packet_loss_pct}%`);
+      break;
+    case "qoe.validation.completed":
+      if (p.qoe_score != null) chips.push(`qoe:${p.qoe_score}`);
+      if (p.packet_loss_pct != null) chips.push(`packet_loss:${p.packet_loss_pct}%`);
+      break;
+  }
+  return chips;
+}
+
 function fmtTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -489,16 +538,21 @@ export default function OperatorWorkspace({
 
   // ── Metric bar helper (baseline → final reward) ──
   const t = session?.evidenceSummary.training;
-  const hasRewardData = t && t.meanReward !== null;
-  const rewardDelta = hasRewardData && t.meanReward !== null
-    ? ((t.meanReward - (t.meanReward - 0.33)) / (t.meanReward - 0.33) * 100).toFixed(1)
-    : null;
-  // Use exact values from the assessment payload when available
   const baselineReward = 331.64;
   const finalReward = t?.meanReward ?? null;
-  const maxReward = finalReward ? Math.max(finalReward * 1.02, baselineReward * 1.02) : 340;
-  const baselinePct = (baselineReward / maxReward) * 100;
-  const finalPct = finalReward ? (finalReward / maxReward) * 100 : 0;
+  const hasRewardData = t != null && finalReward !== null;
+  // Local scale: floor just below the lower value so bars have visually distinct heights
+  const scaleMin = hasRewardData && finalReward !== null
+    ? Math.floor(Math.min(baselineReward, finalReward) * 0.999)
+    : 330;
+  const scaleMax = hasRewardData && finalReward !== null
+    ? Math.ceil(Math.max(baselineReward, finalReward) * 1.001) + 0.5
+    : 334;
+  const scaleRange = scaleMax - scaleMin;
+  const baselinePct = ((baselineReward - scaleMin) / scaleRange) * 100;
+  const finalPct = finalReward !== null ? ((finalReward - scaleMin) / scaleRange) * 100 : 0;
+  // Count satisfied steps directly from the steps array (API doesn't always return satisfiedContractSteps)
+  const satisfiedSteps = sessionSteps.filter(s => s.status?.status === "satisfied").length;
 
   return (
     <main className={styles.shell}>
@@ -587,7 +641,7 @@ export default function OperatorWorkspace({
                 <h2 style={{ fontSize: 14 }}>{session?.contract?.name ?? selected?.name ?? "No active contract"}</h2>
               </div>
               <b style={{ fontFamily: "var(--font-geist-mono)", fontSize: 18 }}>
-                {session?.evidenceSummary.satisfiedContractSteps ?? 0}/{session?.evidenceSummary.totalContractSteps ?? sessionSteps.length}
+                {satisfiedSteps}/{sessionSteps.length}
               </b>
             </div>
             <div className={styles.steps}>
@@ -631,10 +685,14 @@ export default function OperatorWorkspace({
                 const label = timelineEventLabels[event.normalizedEventType] ?? event.normalizedEventType;
                 const elapsed = index > 0 ? elapsedFrom(timeline[0].occurredAt, event.occurredAt) : "T+0";
                 const isTerminal = event.normalizedEventType === "training.completed" || event.normalizedEventType === "training.failed";
+                const chips = getTimelineChips(event);
+                const iconBg = timelineEventBg[event.normalizedEventType] ?? "#f3f2ec";
+                const iconFg = timelineEventFg[event.normalizedEventType];
+                const iconBorder = iconBg === "#171814" ? "#171814" : "#bbbcb3";
                 return (
                   <div key={event.id} className={`${styles.timelineItem} ${isTerminal ? styles.timelineTerminal : ""}`}>
                     <div className={styles.timelineLeft}>
-                      <div className={styles.timelineIcon}>{icon}</div>
+                      <div className={styles.timelineIcon} style={{ background: iconBg, color: iconFg, borderColor: iconBorder }}>{icon}</div>
                       {index < timeline.length - 1 && <div className={styles.timelineLine} />}
                     </div>
                     <div className={styles.timelineContent}>
@@ -642,7 +700,13 @@ export default function OperatorWorkspace({
                       <div className={styles.timelineMeta}>
                         <span>{fmtTime(event.occurredAt)}</span>
                         <span className={styles.timelineElapsed}>{elapsed}</span>
+                        {event.sourceService && <span style={{ color: "#bbbcb3" }}>{event.sourceService}</span>}
                       </div>
+                      {chips.length > 0 && (
+                        <div className={styles.timelineChips}>
+                          {chips.map((chip, i) => <span key={i} className={styles.timelineChip}>{chip}</span>)}
+                        </div>
+                      )}
                       {event.sourceRef && (
                         <span className={styles.timelineRef}>ref: {event.sourceRef.slice(0, 16)}</span>
                       )}
@@ -659,12 +723,16 @@ export default function OperatorWorkspace({
               <span>REWARD PROGRESSION</span>
               <div className={styles.chartBars}>
                 <div className={styles.chartBar}>
-                  <div className={styles.chartBarFill} style={{ height: `${baselinePct}%`, background: "#bbbcb3" }} />
+                  <div className={styles.chartBarTrack}>
+                    <div className={styles.chartBarFill} style={{ height: `${baselinePct}%`, background: "#bbbcb3" }} />
+                  </div>
                   <span>Baseline</span>
                   <strong>{baselineReward.toFixed(2)}</strong>
                 </div>
                 <div className={styles.chartBar}>
-                  <div className={styles.chartBarFill} style={{ height: `${finalPct}%`, background: "#2f9a62" }} />
+                  <div className={styles.chartBarTrack}>
+                    <div className={styles.chartBarFill} style={{ height: `${finalPct}%`, background: "#2f9a62" }} />
+                  </div>
                   <span>Final</span>
                   <strong>{finalReward.toFixed(2)}</strong>
                 </div>
