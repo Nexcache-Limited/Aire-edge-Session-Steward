@@ -10,6 +10,7 @@ import persistenceStyles from "./persistence.module.css";
 type StepStatus =
   | "pending"
   | "satisfied"
+  | "completed"
   | "attention_needed"
   | "stale"
   | "failed";
