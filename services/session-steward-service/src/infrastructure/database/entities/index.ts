@@ -1,6 +1,7 @@
 export * from './session.entity';
 export * from './session-assessment.entity';
 export * from './session-contract.entity';
+export * from './session-contract-template.entity';
 export * from './session-contract-step.entity';
 export * from './session-event.entity';
 export * from './session-evidence.entity';

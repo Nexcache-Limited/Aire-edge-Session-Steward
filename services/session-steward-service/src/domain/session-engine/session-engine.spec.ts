@@ -318,3 +318,171 @@ describe('SessionEngine - edge rollout and QoE validation', () => {
     );
   });
 });
+
+describe('SessionEngine - AIRE-Edge training workflow', () => {
+  const engine = new SessionEngine();
+  const trainingSession: SessionRecord = {
+    ...session,
+    id: 'training-session-042',
+    objective: 'Train and validate a converged routing policy',
+    workflowType: 'model_training',
+    workflowId: 'mlflow-run-42',
+    activeContractId: 'training-contract-v1',
+  };
+  const trainingContract: SessionContractRecord = {
+    ...contract,
+    id: 'training-contract-v1',
+    sessionId: trainingSession.id,
+    name: 'AIRE-Edge training run',
+  };
+  const trainingSteps = [
+    ['training-started', 'Start training', 'training.started', 'training_context'],
+    [
+      'checkpoint-produced',
+      'Produce a checkpoint',
+      'training.checkpoint.produced',
+      'training_checkpoint',
+    ],
+    [
+      'validation-recorded',
+      'Record validation evidence',
+      'training.validation.metric.recorded',
+      'training_validation_metric',
+    ],
+    ['training-completed', 'Complete training', 'training.completed', 'training_completion'],
+  ].map(([key, title, expectedEventType, evidenceKind], index): SessionContractStepRecord => ({
+    id: `step-${key}`,
+    contractId: trainingContract.id,
+    stepOrder: index,
+    stepKey: key,
+    title,
+    expectedEventType,
+    expectedEvidenceKinds: [evidenceKind as NonNullable<SessionEvidenceRecord['evidenceKind']>],
+    successCriterionKey:
+      expectedEventType === 'training.completed' ? 'training-converged' : undefined,
+    maxWaitSeconds: 1800,
+    required: true,
+    successRule: {},
+    createdAt: iso(0),
+  }));
+  const trainingCriteria: SessionSuccessCriterionRecord[] = [
+    {
+      id: 'criterion-training-confidence',
+      contractId: trainingContract.id,
+      criterionKey: 'training-confidence',
+      metricName: 'training_confidence_margin',
+      operator: '>=',
+      thresholdValue: 0,
+      createdAt: iso(0),
+    },
+    {
+      id: 'criterion-training-converged',
+      contractId: trainingContract.id,
+      criterionKey: 'training-converged',
+      metricName: 'training_converged',
+      operator: '>=',
+      thresholdValue: 1,
+      createdAt: iso(0),
+    },
+  ];
+  const trainingEvent = (
+    id: string,
+    minutes: number,
+    normalizedEventType: string,
+  ): SessionEventRecord => ({
+    ...event(id, minutes, normalizedEventType),
+    sessionId: trainingSession.id,
+    sourceService: 'ai-orchestration-service',
+    workflowId: trainingSession.workflowId,
+  });
+  const trainingEvidence = (
+    id: string,
+    minutes: number,
+    evidenceKind: SessionEvidenceRecord['evidenceKind'],
+    metricSet: SessionEvidenceRecord['metricSet'] = {},
+  ): SessionEvidenceRecord => ({
+    id,
+    sessionId: trainingSession.id,
+    evidenceType: `objective.${evidenceKind}`,
+    evidenceKind,
+    sourceService: 'ai-orchestration-service',
+    sourceEventId: `${id}-event`,
+    metricSet,
+    recordedAt: iso(minutes),
+    value: {},
+    createdAt: iso(minutes),
+  });
+
+  it('completes when checkpoint, validation, convergence, and artifact evidence arrive', () => {
+    const assessment = engine.assess({
+      session: trainingSession,
+      contract: trainingContract,
+      steps: trainingSteps,
+      successCriteria: trainingCriteria,
+      events: [
+        trainingEvent('training-start', 0, 'training.started'),
+        trainingEvent('training-checkpoint', 5, 'training.checkpoint.produced'),
+        trainingEvent('training-validation', 8, 'training.validation.metric.recorded'),
+        trainingEvent('training-complete', 10, 'training.completed'),
+      ],
+      evidence: [
+        trainingEvidence('evidence-start', 0, 'training_context'),
+        trainingEvidence('evidence-checkpoint', 5, 'training_checkpoint', {
+          checkpointStep: 50000,
+          progressPct: 50,
+        }),
+        trainingEvidence('evidence-validation', 8, 'training_validation_metric', {
+          confidenceMargin: 0.11,
+          convergencePassed: 1,
+        }),
+        trainingEvidence('evidence-completion', 10, 'training_completion', {
+          confidenceMargin: 0.11,
+          convergencePassed: 1,
+          meanReward: 18.3,
+        }),
+      ],
+      assessedAt: iso(10.5),
+    });
+
+    expect(assessment).toMatchObject({
+      state: 'completed',
+      completionPercent: 100,
+      confidence: 96,
+    });
+    expect(assessment.rationale.rationaleSummary).toContain('Training completed');
+    expect(assessment.rationale.recommendedNextAction).toContain('Accept the completed');
+    expect(assessment.rationale.successCriteria?.every((item) => item.status === 'met')).toBe(
+      true,
+    );
+  });
+
+  it('treats TrainingFailed as a terminal deterministic failure', () => {
+    const assessment = engine.assess({
+      session: trainingSession,
+      contract: trainingContract,
+      steps: trainingSteps,
+      successCriteria: trainingCriteria,
+      events: [
+        trainingEvent('training-start', 0, 'training.started'),
+        trainingEvent('training-failed', 2, 'training.failed'),
+      ],
+      evidence: [
+        trainingEvidence('evidence-start', 0, 'training_context'),
+        trainingEvidence('evidence-failure', 2, 'training_failure'),
+      ],
+      assessedAt: iso(2.5),
+    });
+
+    expect(assessment.state).toBe('failed');
+    expect(assessment.confidence).toBeLessThanOrEqual(15);
+    expect(assessment.rationale.signals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'training_failed' })]),
+    );
+    expect(assessment.rationale.recommendedNextAction).toContain('new training session');
+    expect(
+      assessment.rationale.contractSteps?.find(
+        (item) => item.stepKey === 'checkpoint-produced',
+      )?.status,
+    ).toBe('failed');
+  });
+});

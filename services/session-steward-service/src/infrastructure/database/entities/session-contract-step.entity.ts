@@ -20,8 +20,23 @@ export class SessionContractStepEntity {
   @Column({ type: 'text' })
   title!: string;
 
+  @Column({ type: 'text', default: '' })
+  description?: string;
+
   @Column({ name: 'expected_event_type', type: 'text' })
   expectedEventType!: string;
+
+  @Column({ name: 'expected_evidence_kinds', type: 'jsonb', default: [] })
+  expectedEvidenceKinds?: string[];
+
+  @Column({ name: 'freshness_requirement_seconds', type: 'integer', nullable: true })
+  freshnessRequirementSeconds?: number | null;
+
+  @Column({ name: 'success_criterion_key', type: 'text', nullable: true })
+  successCriterionKey?: string | null;
+
+  @Column({ name: 'operator_rationale', type: 'text', nullable: true })
+  operatorRationale?: string | null;
 
   @Column({ name: 'max_wait_seconds', type: 'integer', nullable: true })
   maxWaitSeconds!: number | null;

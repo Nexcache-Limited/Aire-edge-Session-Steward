@@ -61,3 +61,34 @@ test("keeps the session engine and intelligence layer separate", async () => {
   await access(new URL("../public/og.png", import.meta.url));
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
+
+test("keeps the authenticated operator workflow isolated from the competition replay", async () => {
+  const [operatorPage, workspace, publicPage] = await Promise.all([
+    readFile(new URL("../app/operator/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/operator/workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(operatorPage, /requireOperatorUser\("\/operator"\)/);
+  assert.match(workspace, /New template/);
+  assert.match(workspace, /Create a new contract version for this run/);
+  assert.match(workspace, /\/api\/steward\/templates/);
+  assert.match(workspace, /\/api\/steward\/sessions\/\$\{sessionId\}/);
+  assert.match(workspace, /Apply contract to session/);
+  assert.match(workspace, /Persisted staging data/);
+  assert.match(workspace, /attention_needed/);
+  assert.match(workspace, /intervention_required/);
+  assert.match(workspace, /Promotion justified/);
+  assert.match(workspace, /delivery confidence/);
+  assert.match(workspace, /qoe\.baseline\.completed/);
+  assert.match(workspace, /promotion_recommendation/);
+  assert.match(workspace, /training\.started/);
+  assert.match(workspace, /training_checkpoint/);
+  assert.match(workspace, /Training complete/);
+  assert.doesNotMatch(workspace, /const beats|Advance evidence/);
+  assert.match(workspace, /RECOMMENDED NEXT ACTION/);
+  assert.match(
+    await readFile(new URL("../app/api/steward/client.ts", import.meta.url), "utf8"),
+    /SESSION_STEWARD_API_TOKEN/,
+  );
+  assert.doesNotMatch(publicPage, /OperatorWorkspace|New template/);
+});

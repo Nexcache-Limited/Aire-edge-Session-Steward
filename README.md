@@ -164,7 +164,53 @@ npm run build
 
 ### Deployment notes
 
-The public demo is deployed on Vercel using the Next.js preset with `next build`. The repository also retains its Vinext/Cloudflare build path for Sites-compatible deployment.
+The competition demo and active development are deliberately separated:
+
+- `steward.nexcache.com` tracks the frozen `competition-demo` branch.
+- `live-steward.nexcache.com` tracks `main` for staging validation.
+
+The authenticated `/operator` workspace reads and writes contract templates
+through server-side proxy routes. Configure the staging web project with:
+
+| Variable | Purpose |
+| --- | --- |
+| `SESSION_STEWARD_API_URL` | Base URL of the deployed NestJS service |
+| `SESSION_STEWARD_TENANT_ID` | Tenant used for operator API requests |
+| `SESSION_STEWARD_API_TOKEN` | Shared server-to-server bearer secret; at least 32 characters |
+| `STEWARD_DEMO_SESSION_ID` | Persisted Essex-style session shown in the operator workflow |
+| `OPERATOR_AUTH_MODE` | `credentials` on Vercel; `chatgpt` where OpenAI auth headers are available |
+| `OPERATOR_AUTH_EMAIL` | Allowed live-steward operator email |
+| `OPERATOR_AUTH_PASSWORD` | Strong live-steward operator password |
+| `OPERATOR_AUTH_SECRET` | Random signing secret of at least 32 characters |
+
+The API proxy derives the operator identity from the authenticated request and
+does not expose tenant, operator, or backend bearer credentials to the browser.
+
+The Vercel credential mode issues an eight-hour, signed, HTTP-only session cookie
+and protects both `/operator` and its server-side API proxy. ChatGPT-header auth
+remains available for environments that provide the OpenAI authentication
+headers.
+
+Run database migrations as a dedicated staging step before starting the NestJS
+service:
+
+```bash
+cd services/session-steward-service
+DATABASE_URL="$STAGING_DATABASE_URL" NODE_ENV=production npm run migration:show
+DATABASE_URL="$STAGING_DATABASE_URL" NODE_ENV=production npm run migration:run
+```
+
+The service does not run migrations implicitly unless `MIGRATIONS_RUN=true`.
+Its deployment requires `DATABASE_URL`; live NATS ingest additionally requires
+the variables listed in
+[`services/session-steward-service/README.md`](services/session-steward-service/README.md).
+
+The complete, ordered deployment, migration, persisted validation, rollback,
+and PR evidence procedure is in the
+[`live-steward staging runbook`](docs/live-steward-staging-runbook.md).
+Use the companion
+[`staging execution worksheet`](docs/live-steward-staging-worksheet.md) during
+the real run for go/no-go gates, stop conditions, and evidence filenames.
 
 ---
 

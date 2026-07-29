@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexcache.com/aire-edge/session-steward/evidence-lifecycle-event.schema.json",
+  "title": "Session Steward Evidence Lifecycle Event",
+  "type": "object",
+  "required": ["event_id", "event_type", "tenant_id", "timestamp", "payload"],
+  "properties": {
+    "event_id": { "type": "string" },
+    "event_type": {
+      "enum": [
+        "evidence.recorded",
+        "evidence.pack.updated",
+        "evidence.citation.linked",
+        "evidence.note.attached"
+      ]
+    },
+    "tenant_id": { "type": "string", "format": "uuid" },
+    "session_id": { "type": "string", "format": "uuid" },
+    "workflow_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "type": "object",
+          "properties": {
+            "artifact_type": { "type": "string" },
+            "uri": { "type": "string" },
+            "title": { "type": "string" },
+            "citation_key": { "type": "string" }
+          }
+        },
+        "freshness_expires_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "additionalProperties": true
+}
