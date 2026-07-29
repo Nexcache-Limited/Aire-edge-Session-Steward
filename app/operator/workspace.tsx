@@ -722,31 +722,30 @@ export default function OperatorWorkspace({
             </div>
           )}
 
-          {/* ── Metric chart — reward progression ── */}
-          {trainingWorkflow && hasRewardData && finalReward !== null && (
-            <div className={styles.metricChart}>
-              <span>REWARD PROGRESSION</span>
-              <div className={styles.chartBars}>
-                <div className={styles.chartBar}>
-                  <div className={styles.chartBarTrack}>
-                    <div className={styles.chartBarFill} style={{ height: `${baselinePct}%`, background: "#bbbcb3" }} />
-                  </div>
-                  <span>Baseline</span>
-                  <strong>{baselineReward.toFixed(2)}</strong>
-                </div>
-                <div className={styles.chartBar}>
-                  <div className={styles.chartBarTrack}>
-                    <div className={styles.chartBarFill} style={{ height: `${finalPct}%`, background: "#2f9a62" }} />
-                  </div>
-                  <span>Final</span>
-                  <strong>{finalReward.toFixed(2)}</strong>
-                </div>
+          {/* ── Metric chart — reward progression (SVG for reliable PDF rendering) ── */}
+          {trainingWorkflow && hasRewardData && finalReward !== null && (() => {
+            const trackH = 72;
+            const barW = 52;
+            const svgH = 94;
+            const bH = Math.max(3, Math.round((baselinePct / 100) * trackH));
+            const fH = Math.max(3, Math.round((finalPct / 100) * trackH));
+            const delta = finalReward - baselineReward;
+            return (
+              <div className={styles.metricChart}>
+                <span>REWARD PROGRESSION</span>
+                <svg width="160" height={svgH} viewBox={`0 0 160 ${svgH}`} style={{ display: "block", margin: "10px 0 2px", overflow: "visible" }}>
+                  <line x1="0" y1={trackH} x2="160" y2={trackH} stroke="#e0dfd8" strokeWidth="1" />
+                  <rect x="5" y={trackH - bH} width={barW} height={bH} fill="#bbbcb3" rx="2" />
+                  <text x={5 + barW / 2} y={trackH - bH - 5} textAnchor="middle" fontSize="9" fill="#686a61" fontFamily="monospace">{baselineReward.toFixed(2)}</text>
+                  <text x={5 + barW / 2} y={svgH - 1} textAnchor="middle" fontSize="8" fill="#9a9c92" fontFamily="monospace">Baseline</text>
+                  <rect x="103" y={trackH - fH} width={barW} height={fH} fill="#2f9a62" rx="2" />
+                  <text x={103 + barW / 2} y={trackH - fH - 5} textAnchor="middle" fontSize="9" fill="#2f9a62" fontFamily="monospace">{finalReward.toFixed(2)}</text>
+                  <text x={103 + barW / 2} y={svgH - 1} textAnchor="middle" fontSize="8" fill="#9a9c92" fontFamily="monospace">Final</text>
+                </svg>
+                <div className={styles.chartDelta}>Δ {delta >= 0 ? "+" : ""}{delta.toFixed(2)}</div>
               </div>
-              <div className={styles.chartDelta}>
-                Δ {finalReward > baselineReward ? "+" : ""}{(finalReward - baselineReward).toFixed(2)}
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </section>
 
         {/* RIGHT — Session Judgement (AI assessment) */}
